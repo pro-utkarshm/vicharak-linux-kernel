@@ -22,9 +22,22 @@
 		__overlay__ {
 			clk_cam_24m: clk-cam-24m {
 				compatible = "fixed-clock";
-				#clock-cells = <0>;
 				clock-frequency = <24000000>;
 				clock-output-names = "xvclk";
+				#clock-cells = <0>;
+				status = "okay";
+			};
+
+			camera_pwdn_gpio: camera-pwdn-gpio {
+				status = "okay";
+				compatible = "regulator-fixed";
+				regulator-name = "camera_pwdn_gpio";
+				regulator-always-on;
+				regulator-boot-on;
+				enable-active-high;
+				gpio = <&gpio1 RK_PB5 GPIO_ACTIVE_HIGH>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&cam_pwdn_gpio>;
 			};
 		};
 	};
@@ -36,11 +49,7 @@
 			status = "okay";
 
 			port {
-				#address-cells = <1>;
-				#size-cells = <0>;
-
-				isp0_mipi_in: endpoint@0 {
-					reg = <0>;
+				isp0_mipi_in: endpoint {
 					remote-endpoint = <&dphy_rx0_out>;
 				};
 			};
@@ -83,11 +92,8 @@
 
 				port@0 {
 					reg = <0>;
-					#address-cells = <1>;
-					#size-cells = <0>;
 
-					mipi_in_ucam0: endpoint@1 {
-						reg = <1>;
+					mipi_in_ucam0: endpoint {
 						remote-endpoint = <&ucam_out0>;
 						data-lanes = <1 2>;
 					};
@@ -95,11 +101,8 @@
 
 				port@1 {
 					reg = <1>;
-					#address-cells = <1>;
-					#size-cells = <0>;
 
-					dphy_rx0_out: endpoint@0 {
-						reg = <0>;
+					dphy_rx0_out: endpoint {
 						remote-endpoint = <&isp0_mipi_in>;
 					};
 				};
@@ -139,6 +142,19 @@
 						remote-endpoint = <&mipi_in_ucam0>;
 						data-lanes = <1 2>;
 					};
+				};
+			};
+		};
+	};
+
+	fragment@8 {
+		target = <&pinctrl>;
+
+		__overlay__ {
+			camera {
+				cam_pwdn_gpio: cam-pwdn-gpio {
+					rockchip,pins =
+						<1 RK_PB5 RK_FUNC_GPIO &pcfg_pull_up>;
 				};
 			};
 		};
