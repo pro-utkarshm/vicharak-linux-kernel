@@ -379,7 +379,7 @@
 		vddio-supply = <&vcc_3v0>;
 
 		regulators {
-			vdd_center: dcdc-reg1 {
+			vdd_center: DCDC_REG1 {
 				regulator-name = "vdd_center";
 				regulator-always-on;
 				regulator-boot-on;
@@ -392,7 +392,7 @@
 				};
 			};
 
-			vdd_cpu_l: dcdc-reg2 {
+			vdd_cpu_l: DCDC_REG2 {
 				regulator-name = "vdd_cpu_l";
 				regulator-always-on;
 				regulator-boot-on;
@@ -405,7 +405,7 @@
 				};
 			};
 
-			vcc_ddr: dcdc-reg3 {
+			vcc_ddr: DCDC_REG3 {
 				regulator-name = "vcc_ddr";
 				regulator-always-on;
 				regulator-boot-on;
@@ -415,7 +415,7 @@
 				};
 			};
 
-			vcc_1v8: dcdc-reg4 {
+			vcc_1v8: DCDC_REG4 {
 				regulator-name = "vcc_1v8";
 				regulator-always-on;
 				regulator-boot-on;
@@ -428,7 +428,7 @@
 				};
 			};
 
-			vcc1v8_codec: ldo-reg1 {
+			vcc1v8_codec: LDO_REG1 {
 				regulator-name = "vcc1v8_codec";
 				regulator-always-on;
 				regulator-boot-on;
@@ -441,7 +441,7 @@
 				};
 			};
 
-			vcca1v8_hdmi: ldo-reg2 {
+			vcca1v8_hdmi: LDO_REG2 {
 				regulator-name = "vcca1v8_hdmi";
 				regulator-always-on;
 				regulator-boot-on;
@@ -454,7 +454,7 @@
 				};
 			};
 
-			vcca_1v8: ldo-reg3 {
+			vcca_1v8: LDO_REG3 {
 				regulator-name = "vcca_1v8";
 				regulator-always-on;
 				regulator-boot-on;
@@ -467,7 +467,7 @@
 				};
 			};
 
-			vcc_sdio: ldo-reg4 {
+			vcc_sdio: LDO_REG4 {
 				regulator-name = "vcc_sdio";
 				regulator-always-on;
 				regulator-boot-on;
@@ -480,7 +480,7 @@
 				};
 			};
 
-			vcca3v0_codec: ldo-reg5 {
+			vcca3v0_codec: LDO_REG5 {
 				regulator-name = "vcca3v0_codec";
 				regulator-always-on;
 				regulator-boot-on;
@@ -493,7 +493,7 @@
 				};
 			};
 
-			vcc_1v5: ldo-reg6 {
+			vcc_1v5: LDO_REG6 {
 				regulator-name = "vcc_1v5";
 				regulator-always-on;
 				regulator-boot-on;
@@ -506,7 +506,7 @@
 				};
 			};
 
-			vcca0v9_hdmi: ldo-reg7 {
+			vcca0v9_hdmi: LDO_REG7 {
 				regulator-name = "vcca0v9_hdmi";
 				regulator-always-on;
 				regulator-boot-on;
@@ -519,7 +519,7 @@
 				};
 			};
 
-			vcc_3v0: ldo-reg8 {
+			vcc_3v0: LDO_REG8 {
 				regulator-name = "vcc_3v0";
 				regulator-always-on;
 				regulator-boot-on;
@@ -532,7 +532,7 @@
 				};
 			};
 
-			vcc_cam: switch-reg1 {
+			vcc_cam: SWITCH_REG1 {
 				regulator-name = "vcc_cam";
 				regulator-always-on;
 				regulator-boot-on;
@@ -542,7 +542,7 @@
 				};
 			};
 
-			vcc_mipi: switch-reg2 {
+			vcc_mipi: SWITCH_REG2 {
 				regulator-name = "vcc_mipi";
 				regulator-always-on;
 				regulator-boot-on;
