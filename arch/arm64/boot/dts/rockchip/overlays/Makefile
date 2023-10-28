@@ -10,7 +10,10 @@ dtbo-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3399-vaaman-i2c2.dtbo \
 	rk3399-vaaman-i2c6.dtbo \
 	rk3399-vaaman-pwm0.dtbo \
-	rk3399-vaaman-pwm1.dtbo
+	rk3399-vaaman-pwm1.dtbo \
+	rk3399-vaaman-spdif-pin15.dtbo \
+	rk3399-vaaman-spdif-pin32.dtbo \
+	rk3399-vaaman-spi2-jedec-flash.dtbo
 
 dtbotxt-$(CONFIG_ARCH_ROCKCHIP) += \
 	README.rockchip-overlays
