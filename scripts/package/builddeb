@@ -162,7 +162,7 @@ fi
 if is_enabled CONFIG_ARCH_VICHARAK; then
 	if [ "$ARCH" = "arm64" ] ; then
 		if [ -n "${RK_KERNEL_DTS}" ]; then
-			cp ${tmpdir}/usr/lib/${packagename}/rockchip/${RK_KERNEL_DTS}.dtb "$tmpdir/boot/"
+			cp -ar ${tmpdir}/usr/lib/${packagename}/rockchip/* "$tmpdir/boot/"
 		fi
 	fi
 fi
