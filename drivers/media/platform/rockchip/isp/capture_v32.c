@@ -1363,11 +1363,6 @@ static int mi_frame_start(struct rkisp_stream *stream, u32 mis)
 	struct rkisp_device *dev = stream->ispdev;
 	unsigned long lock_flags = 0;
 
-	if (stream->streaming && dev->isp_ver == ISP_V32) {
-		rkisp_rockit_buf_done(stream, ROCKIT_DVBM_START);
-		rkisp_rockit_ctrl_fps(stream);
-	}
-
 	/* readback start to update stream buf if null */
 	spin_lock_irqsave(&stream->vbq_lock, lock_flags);
 	if (stream->streaming) {
