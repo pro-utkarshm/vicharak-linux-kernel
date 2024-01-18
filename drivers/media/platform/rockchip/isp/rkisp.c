@@ -1072,8 +1072,13 @@ static void rkisp_rdbk_work(struct work_struct *work)
 
 void rkisp_check_idle(struct rkisp_device *dev, u32 irq)
 {
+	unsigned long lock_flags = 0;
 	u32 val = 0;
 
+	if (!IS_HDR_RDBK(dev->rd_mode))
+		return;
+
+	spin_lock_irqsave(&dev->hw_dev->rdbk_lock, lock_flags);
 	dev->irq_ends |= (irq & dev->irq_ends_mask);
 	v4l2_dbg(3, rkisp_debug, &dev->v4l2_dev,
 		 "%s irq:0x%x ends:0x%x mask:0x%x\n",
@@ -1084,9 +1089,11 @@ void rkisp_check_idle(struct rkisp_device *dev, u32 irq)
 		if (!completion_done(&dev->hw_dev->monitor.cmpl))
 			complete(&dev->hw_dev->monitor.cmpl);
 	}
-	if ((dev->irq_ends & dev->irq_ends_mask) != dev->irq_ends_mask ||
-	    !IS_HDR_RDBK(dev->rd_mode))
+	if ((dev->irq_ends & dev->irq_ends_mask) != dev->irq_ends_mask) {
+		spin_unlock_irqrestore(&dev->hw_dev->rdbk_lock, lock_flags);
 		return;
+	}
+	spin_unlock_irqrestore(&dev->hw_dev->rdbk_lock, lock_flags);
 
 	if (dev->sw_rd_cnt)
 		goto end;
@@ -1160,8 +1167,6 @@ static void rkisp_config_ism(struct rkisp_device *dev)
 	u32 width = out_crop->width, mult = 1;
 	u32 unite = dev->hw_dev->unite;
 
-	if (dev->isp_sdev.in_fmt.fmt_type == FMT_RGB)
-		mult = 3;
 	/* isp2.0 no ism */
 	if (dev->isp_ver == ISP_V20 || dev->isp_ver == ISP_V21 ||
 	    dev->isp_ver == ISP_V32_L)
@@ -1169,15 +1174,13 @@ static void rkisp_config_ism(struct rkisp_device *dev)
 
 	if (unite)
 		width = width / 2 + RKMOUDLE_UNITE_EXTEND_PIXEL;
-
 	rkisp_unite_write(dev, CIF_ISP_IS_RECENTER, 0, false);
 	rkisp_unite_write(dev, CIF_ISP_IS_MAX_DX, 0, false);
 	rkisp_unite_write(dev, CIF_ISP_IS_MAX_DY, 0, false);
 	rkisp_unite_write(dev, CIF_ISP_IS_DISPLACE, 0, false);
-	rkisp_unite_write(dev, CIF_ISP_IS_H_OFFS, mult * out_crop->left, false);
+	rkisp_unite_write(dev, CIF_ISP_IS_H_OFFS, out_crop->left, false);
 	rkisp_unite_write(dev, CIF_ISP_IS_V_OFFS, out_crop->top, false);
-	rkisp_unite_write(dev, CIF_ISP_IS_H_SIZE, mult * width, false);
-
+	rkisp_unite_write(dev, CIF_ISP_IS_H_SIZE, width, false);
 	if (dev->cap_dev.stream[RKISP_STREAM_SP].interlaced)
 		mult = 2;
 	rkisp_unite_write(dev, CIF_ISP_IS_V_SIZE, out_crop->height / mult, false);
@@ -1628,7 +1631,6 @@ static int rkisp_config_isp(struct rkisp_device *dev)
 	u32 acq_prop = 0;
 	u32 extend_line = 0;
 	u32 width;
-	u32 out_mult = 1;
 
 	sensor = dev->active_sensor;
 	in_fmt = &dev->isp_sdev.in_fmt;
@@ -1696,13 +1698,6 @@ static int rkisp_config_isp(struct rkisp_device *dev)
 		irq_mask |= CIF_ISP_DATA_LOSS;
 		if (dev->isp_inp == INP_DMARX_ISP)
 			acq_prop = CIF_ISP_ACQ_PROP_DMA_YUV;
-	} else if (in_fmt->fmt_type == FMT_RGB) {
-		acq_mult = 3;
-		out_mult = 3;
-		if (sensor && sensor->mbus.type == V4L2_MBUS_BT656)
-			isp_ctrl = CIF_ISP_CTRL_ISP_MODE_ITU656;
-		else
-			isp_ctrl = CIF_ISP_CTRL_ISP_MODE_RAW_PICT;
 	}
 
 	/* Set up input acquisition properties */
@@ -1960,6 +1955,9 @@ static void rkisp_start_3a_run(struct rkisp_device *dev)
 		return;
 
 	v4l2_event_queue(vdev, &ev);
+	/* thunderboot no need to wait aiq first param */
+	if (dev->is_pre_on)
+		return;
 	/* rk3326/px30 require first params queued before
 	 * rkisp_params_configure_isp() called
 	 */
@@ -2407,12 +2405,6 @@ static const struct ispsd_in_fmt rkisp_isp_input_formats[] = {
 		.mipi_dt	= CIF_CSI2_DT_RAW12,
 		.yuv_seq	= CIF_ISP_ACQ_PROP_YCBYCR,
 		.bus_width	= 12,
-	}, {
-		.name		= "RGB888_1X24",
-		.mbus_code	= MEDIA_BUS_FMT_RGB888_1X24,
-		.fmt_type	= FMT_RGB,
-		.mipi_dt	= CIF_CSI2_DT_RGB888,
-		.bus_width	= 24,
 	}
 };
 
@@ -2456,10 +2448,7 @@ static const struct ispsd_out_fmt rkisp_isp_output_formats[] = {
 	}, {
 		.mbus_code	= MEDIA_BUS_FMT_SGRBG8_1X8,
 		.fmt_type	= FMT_BAYER,
-	}, {
-		.mbus_code	= MEDIA_BUS_FMT_RGB888_1X24,
-		.fmt_type	= FMT_BAYER,
-	}
+	},
 };
 
 static const struct ispsd_in_fmt *find_in_fmt(u32 mbus_code)
