@@ -588,9 +588,9 @@ isp_lsc_enable(struct rkisp_isp_params_vdev *params_vdev, bool en)
 
 	if (en) {
 		val = ISP_LSC_EN | ISP39_SELF_FORCE_UPD;
-		isp3_param_set_bits(params_vdev, ISP3X_LSC_CTRL, val);
-		if (dev->hw_dev->is_single)
-			isp_lsc_matrix_cfg_sram(params_vdev, &params_rec->others.lsc_cfg, false);
+		if (!IS_HDR_RDBK(params_vdev->dev->rd_mode))
+			val |= ISP3X_LSC_LUT_EN;
+		isp3_param_set_bits(params_vdev, ISP3X_LSC_CTRL, val, id);
 	} else {
 		isp3_param_clear_bits(params_vdev, ISP3X_LSC_CTRL, ISP_LSC_EN);
 		isp3_param_clear_bits(params_vdev, ISP3X_GAIN_CTRL, BIT(8));
@@ -2242,7 +2242,7 @@ isp_dhaz_cfg_sram(struct rkisp_isp_params_vdev *params_vdev,
 	struct rkisp_isp_params_val_v39 *priv_val = params_vdev->priv_val;
 	u32 i, j, val, ctrl = isp3_param_read(params_vdev, ISP3X_DHAZ_CTRL);
 
-	if (is_check && (ctrl & ISP3X_DHAZ_ENMUX))
+	if (is_check && !(ctrl & ISP3X_DHAZ_ENMUX))
 		return;
 
 	if (arg->hist_iir_wr) {
@@ -2268,7 +2268,7 @@ isp_dhaz_config(struct rkisp_isp_params_vdev *params_vdev,
 	struct isp39_isp_params_cfg *params_rec = params_vdev->isp39_params;
 	struct isp39_dhaz_cfg *arg_rec = &params_rec->others.dhaz_cfg;
 	struct rkisp_isp_params_val_v39 *priv_val = params_vdev->priv_val;
-	u32 w = out_crop->width, h =  out_crop->height;
+	u32 w = out_crop->width, h = out_crop->height;
 	u32 i, value, ctrl, thumb_row, thumb_col, blk_het, blk_wid;
 
 	ctrl = isp3_param_read(params_vdev, ISP3X_DHAZ_CTRL);
@@ -3251,6 +3251,8 @@ isp_bay3d_enable(struct rkisp_isp_params_vdev *params_vdev, bool en)
 
 		value = ISP3X_BAY3D_IIR_WR_AUTO_UPD | ISP3X_BAY3D_IIRSELF_UPD |
 			ISP3X_BAY3D_RDSELF_UPD;
+		if (priv_val->buf_gain.mem_priv)
+			value |= ISP3X_GAIN_WR_AUTO_UPD | ISP3X_GAINSELF_UPD;
 		isp3_param_set_bits(params_vdev, MI_WR_CTRL2, value);
 
 		isp3_param_set_bits(params_vdev, ISP3X_ISP_CTRL1, ISP3X_RAW3D_FST_FRAME);
@@ -4014,11 +4016,19 @@ void __isp_config_hdrshd(struct rkisp_isp_params_vdev *params_vdev)
 }
 
 static
-void rkisp_params_cfgsram_v39(struct rkisp_isp_params_vdev *params_vdev)
+void rkisp_params_cfgsram_v39(struct rkisp_isp_params_vdev *params_vdev, bool is_reset)
 {
 	struct isp39_isp_params_cfg *params = params_vdev->isp39_params;
 
-	isp_dhaz_cfg_sram(params_vdev, &params->others.dhaz_cfg, true);
+	struct rkisp_device *dev = params_vdev->dev;
+	u32 id = dev->unite_index;
+	struct isp39_isp_params_cfg *params = params_vdev->isp39_params + id;
+
+	if (!dev->hw_dev->is_frm_buf && is_reset)
+		params->others.dhaz_cfg.hist_iir_wr = true;
+	isp_dhaz_cfg_sram(params_vdev, &params->others.dhaz_cfg, true, id);
+	params->others.dhaz_cfg.hist_iir_wr = false;
+
 	isp_lsc_matrix_cfg_sram(params_vdev, &params->others.lsc_cfg, true);
 	isp_rawhstbig_cfg_sram(params_vdev, &params->meas.rawhist0,
 			       ISP3X_RAWHIST_LITE_BASE, true);
@@ -4078,6 +4088,26 @@ rkisp_alloc_internal_buf(struct rkisp_isp_params_vdev *params_vdev,
 			if (ret) {
 				dev_err(dev->dev, "alloc bay3d iir buf fail:%d\n", ret);
 				goto err_3dnr;
+			}
+		}
+
+		val = ALIGN(w * h / 4, 16);
+		priv_val->gain_size = val;
+		if (dev->unite_div > ISP_UNITE_DIV1)
+			val *= dev->unite_div;
+		is_alloc = dev->is_aiisp_en ? true : false;
+		if (priv_val->buf_gain.mem_priv) {
+			if (val > priv_val->buf_gain.size)
+				rkisp_free_buffer(dev, &priv_val->buf_gain);
+			else
+				is_alloc = false;
+		}
+		if (is_alloc) {
+			priv_val->buf_gain.size = val;
+			ret = rkisp_alloc_buffer(dev, &priv_val->buf_gain);
+			if (ret) {
+				dev_err(dev->dev, "alloc gain buf fail:%d\n", ret);
+				goto free_3dnr_iir;
 			}
 		}
 	}

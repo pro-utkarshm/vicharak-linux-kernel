@@ -23,6 +23,7 @@
 
 static int mi_frame_end(struct rkisp_stream *stream, u32 state);
 static int mi_frame_start(struct rkisp_stream *stream, u32 irq);
+static int isp_frame_end(struct rkisp_stream *stream, u32 irq);
 
 static const struct capture_fmt mp_fmts[] = {
 	/* yuv422 */
@@ -843,6 +844,27 @@ static void update_mi(struct rkisp_stream *stream)
 			val = stream->next_buf->buff_addr[RKISP_PLANE_CR];
 			rkisp_write(dev, reg, val, false);
 		}
+
+		if (dev->unite_div > ISP_UNITE_DIV1) {
+			/* right of image, or right top of image */
+			reg = stream->config->mi.y_base_ad_init;
+			val = stream->next_buf->buff_addr[RKISP_PLANE_Y];
+			val += ((out_fmt->width / div) & ~0xf);
+			rkisp_idx_write(dev, reg, val, ISP_UNITE_RIGHT, false);
+
+			reg = stream->config->mi.cb_base_ad_init;
+			val = stream->next_buf->buff_addr[RKISP_PLANE_CB];
+			val += ((out_fmt->width / div) & ~0xf);
+			rkisp_idx_write(dev, reg, val, ISP_UNITE_RIGHT, false);
+
+			if (stream->id != RKISP_STREAM_LDC) {
+				reg = stream->config->mi.cr_base_ad_init;
+				val = stream->next_buf->buff_addr[RKISP_PLANE_CR];
+				val += ((out_fmt->width / div) & ~0xf);
+				rkisp_idx_write(dev, reg, val, ISP_UNITE_RIGHT, false);
+			}
+		}
+
 		if (stream->is_pause) {
 			/* single sensor mode with pingpong buffer:
 			 * if mi on, addr will auto update at frame end
@@ -910,6 +932,7 @@ static struct streams_ops rkisp_mp_streams_ops = {
 	.update_mi = update_mi,
 	.frame_end = mi_frame_end,
 	.frame_start = mi_frame_start,
+	.isp_end = isp_frame_end,
 };
 
 static struct streams_ops rkisp_sp_streams_ops = {
@@ -921,6 +944,7 @@ static struct streams_ops rkisp_sp_streams_ops = {
 	.update_mi = update_mi,
 	.frame_end = mi_frame_end,
 	.frame_start = mi_frame_start,
+	.isp_end = isp_frame_end,
 };
 
 static struct streams_ops rkisp_ldc_streams_ops = {
@@ -980,6 +1004,24 @@ static int mi_frame_start(struct rkisp_stream *stream, u32 irq)
 	}
 	spin_unlock_irqrestore(&stream->vbq_lock, lock_flags);
 
+	return 0;
+}
+
+static int isp_frame_end(struct rkisp_stream *stream, u32 irq)
+{
+	struct rkisp_device *dev = stream->ispdev;
+	u32 val = ISP3X_ISP_OUT_LINE(rkisp_read(dev, ISP3X_ISP_DEBUG2, true));
+
+	if (stream->need_scl_upd) {
+		if (val)
+			v4l2_err(&dev->v4l2_dev,
+				 "no to update scl, need to increase sensor vblank\n");
+		else {
+			val = ISP32_SCALE_FORCE_UPD | ISP32_SCALE_GEN_UPD;
+			rkisp_write(dev, stream->config->rsz.update, val, true);
+			stream->need_scl_upd = false;
+		}
+	}
 	return 0;
 }
 
@@ -1440,6 +1482,7 @@ static int rkisp_stream_start(struct rkisp_stream *stream)
 	bool async = false;
 	int ret;
 
+	stream->need_scl_upd = false;
 	if (stream->id == RKISP_STREAM_LDC)
 		goto skip;
 
@@ -1461,7 +1504,8 @@ static int rkisp_stream_start(struct rkisp_stream *stream)
 		v4l2_err(v4l2_dev, "config rsz failed with error %d\n", ret);
 		return ret;
 	}
-
+	if (async && dev->hw_dev->is_single)
+		stream->need_scl_upd = true;
 skip:
 	return rkisp_start(stream);
 }
