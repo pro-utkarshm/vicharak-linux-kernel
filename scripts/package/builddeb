@@ -240,8 +240,8 @@ if [ \$(boot_find 'Image*') -gt 0 ]; then
     rm -rf /boot/Image*
 fi
 
-if [ \$(boot_find '*dtb*') -gt 0 ]; then
-    rm -rf /boot/*dtb*
+if [ \$(boot_find ${RK_KERNEL_DTS}.dtb* ]; then
+    rm -rf /boot/${RK_KERNEL_DTS}.dtb*
 fi
 
 if [ \$(boot_find 'initrd*') -gt 0 ]; then
@@ -292,12 +292,11 @@ fi
 # Create an extlinux.conf file
 echo "label ${RK_KERNEL_DTS} linux-${version}" >/boot/extlinux/extlinux.conf
 echo "\tkernel /Image-${version}" >>/boot/extlinux/extlinux.conf
+echo "\tfdt /rk-kernel.dtb" >>/boot/extlinux/extlinux.conf
 
 # Copy the kernel device tree file
 if [ -f "/usr/lib/${packagename}/rockchip/${RK_KERNEL_DTS}.dtb" ]; then
-	cp -f "/usr/lib/${packagename}/rockchip/${RK_KERNEL_DTS}.dtb" /boot/${RK_KERNEL_DTS}.dtb
-
-	echo "\tfdt /${RK_KERNEL_DTS}.dtb" >>/boot/extlinux/extlinux.conf
+       cp -f "/usr/lib/${packagename}/rockchip/${RK_KERNEL_DTS}.dtb" /boot/${RK_KERNEL_DTS}.dtb
 fi
 
 # Extract the kernel configuration to /boot/config
