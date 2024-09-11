@@ -337,6 +337,26 @@ exit 0
 EOF
 	chmod 0755 "$tmpdir$debhookdir/postinst.d/99-vicharak-postinst"
 
+	mkdir -p "$tmpdir/etc/init.d"
+	cat > "$tmpdir/etc/init.d/mountboot.sh" <<EOF
+#!/bin/sh
+
+set -e
+
+# Variables
+PARTITION_PATH="/dev/\$(df -h / | sed -n 2p | cut -d ' ' -f 1 | xargs lsblk -no pkname)"
+
+# Get boot partition of boot
+BOOT_PARTITION="\$(blkid | grep 'PARTLABEL=\"boot\"' | cut -d ':' -f 1 | grep \${PARTITION_PATH})"
+
+# Mount the boot partition
+echo "Mounting boot partition(\${BOOT_PARTITION}) to /boot"
+mount "\${BOOT_PARTITION}" /boot
+
+echo "Mount operation completed successfully."
+EOF
+	chmod 0755 "$tmpdir/etc/init.d/mountboot.sh"
+
 	cat > "$tmpdir$debhookdir/postrm.d/99-vicharak-postrm" <<EOF
 #!/bin/sh
 set -e
