@@ -344,7 +344,7 @@ EOF
 set -e
 
 # Variables
-PARTITION_PATH="/dev/\$(df -h / | sed -n 2p | cut -d ' ' -f 1 | xargs lsblk -no pkname)"
+PARTITION_PATH="/dev/\$(cat /proc/mounts | grep ' / ' | cut -d ' ' -f 1 | xargs lsblk -no pkname)"
 
 # Get boot partition of boot
 BOOT_PARTITION="\$(blkid | grep 'PARTLABEL=\"boot\"' | cut -d ':' -f 1 | grep \${PARTITION_PATH})"
