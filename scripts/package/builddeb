@@ -240,7 +240,7 @@ if [ \$(boot_find 'Image*') -gt 0 ]; then
     rm -rf /boot/Image*
 fi
 
-if [ \$(boot_find ${RK_KERNEL_DTS}.dtb*) -gt 0 ]; then
+if [ \$(boot_find "${RK_KERNEL_DTS}.dtb\\*") -gt 0 ]; then
     rm -rf /boot/${RK_KERNEL_DTS}.dtb*
 fi
 
