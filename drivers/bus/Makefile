@@ -39,3 +39,6 @@ obj-$(CONFIG_DA8XX_MSTPRI)	+= da8xx-mstpri.o
 
 # MHI
 obj-y				+= mhi/
+
+# PERIPLEX
+obj-$(CONFIG_PERIPLEX)		+=periplex.o
