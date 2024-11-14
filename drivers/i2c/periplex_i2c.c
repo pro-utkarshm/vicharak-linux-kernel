@@ -129,6 +129,7 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
             message[0] = msg_temp->addr << 1 | is_read;
             message[1] = msg_temp->len;
 
+            set_periplex_configuration(periplex_id, 1, 1);
             set_periplex_data(periplex_id, 2, message);
             kfree(message);
             message = NULL;
@@ -178,7 +179,7 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
                 I2C_DEBUG("[0x%02x] \n", msg_temp->buf[j]);
                 message[j + 2] = msg_temp->buf[j];
             }
-
+            set_periplex_configuration(periplex_id, 1, 1);
             set_periplex_data(periplex_id, msg_temp->len + 2, message);
             kfree(message);
             message = NULL;
@@ -225,6 +226,7 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 
         I2C_DEBUG("Quick command: addr=0x%02x, forcing rw=1\n", addr);
 
+        set_periplex_configuration(periplex_id, 1, 1);
         set_periplex_data(periplex_id, 2, message);
         kfree(message);
 
@@ -256,6 +258,7 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
         message[0] = addr << 1 | (read_write & 1);
         message[1] = 1 << 7;
 
+        set_periplex_configuration(periplex_id, 1, 1);
         set_periplex_data(periplex_id, 2, message);
         kfree(message);
 
@@ -304,6 +307,7 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
                       size == I2C_SMBUS_BLOCK_DATA ? "SMBus" : "I2C",
                       addr, command, data->block[0]);
 
+            set_periplex_configuration(periplex_id, 1, 1);
             set_periplex_data(periplex_id, data->block[0] + 3, message);
             kfree(message);
         }
@@ -322,6 +326,7 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
             message[3] = addr << 1 | 1;
             message[4] = (size == I2C_SMBUS_BLOCK_DATA) ? I2C_SMBUS_BLOCK_MAX : data->block[0];
 
+            set_periplex_configuration(periplex_id, 1, 1);
             set_periplex_data(periplex_id, 5, message);
             kfree(message);
 
