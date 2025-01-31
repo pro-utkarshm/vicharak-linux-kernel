@@ -1,3 +1,10 @@
+/*
+** Significant of pwm.c file :
+** 1.Make multiple pwm chip with the use of dtso and create the
+** pwmchip* series into the /sys/class/pwm
+** 2.Allow to set duty-cycle and period for any specific pwm(pwmchip*) device.
+*/
+
 #include <linux/kernel.h>
 #include <linux/math64.h>
 #include <linux/err.h>
@@ -5,18 +12,17 @@
 #include <linux/of.h>
 #include <linux/string.h>
 #include <linux/types.h>
-#include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/slab.h>
 #include <linux/gfp.h>
 #include <linux/pwm.h>
 #include <asm/errno.h>
 #include <linux/moduleparam.h>
-#include <linux/peripheral.h>
 
-/* 
-** header file through which device can communicate and generated 
+/*
+** header file through which device can communicate and generated
 */
+#include <linux/peripheral.h>
 // #include "include/peripheral.h"
 
 #define DRIVER_NAME "periplex-pwm"
@@ -26,12 +32,13 @@ static int debug = 0;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Enable or disable debug mode");
 
+/* Macro to conditionally print debug info */
 #define PWM_DEBUG(fmt, ...)              \
-	do                                   \
-	{                                    \
-		if (debug)                       \
-			pr_info(fmt, ##__VA_ARGS__); \
-	} while (0)
+    do                                   \
+    {                                    \
+        if (debug)                       \
+            pr_info(fmt, ##__VA_ARGS__); \
+    } while (0)
 
 int fre_clk = 0;
 
@@ -41,7 +48,7 @@ struct periplex_pwm
     int periplex_id;
 };
 
-int read_data_for_pwm(struct periplex_device *dev, char *message, const int len)
+int read_data_for_pwm(struct periplex_device *pdev, char *message, const int len)
 {
     return 0;
 }
@@ -66,8 +73,8 @@ static int pwm_periplex_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 
     if (state->enabled == 1)
     {
-        u64 OFF_time = (state->period - state->duty_cycle)/20;
-        u64 ON_time = state->duty_cycle/20;
+        u64 OFF_time = (state->period - state->duty_cycle) / 20;
+        u64 ON_time = state->duty_cycle / 20;
         pr_info("OFF_time is %llu\n", OFF_time);
         pr_info("ON_time is %llu\n", ON_time);
 
@@ -89,7 +96,6 @@ static int pwm_periplex_apply(struct pwm_chip *chip, struct pwm_device *pwm,
         set_periplex_data(periplex_id, 8, (char *)message);
     }
 
-    // pr_info("apply\n");
     return 0;
 }
 
@@ -114,20 +120,10 @@ static const struct pwm_ops pwm_periplex_ops = {
     .get_state = pwm_periplex_get_state,
 };
 
-static int pwm_clk_probe(struct platform_device *pdev)
+static int pwm_clk_probe(struct periplex_device *pdev)
 {
     int ret;
-    struct device *dev = &pdev->dev;
-    struct device_node *np = dev->of_node;
     struct periplex_pwm *pwm;
-    struct periplex_device *pwm_d;
-
-    pwm_d = kzalloc(sizeof(struct periplex_device), GFP_KERNEL);
-    if (!pwm_d)
-    {
-        ret = -ENOMEM;
-        goto err_free_pwm_d;
-    }
 
     pwm = kzalloc(sizeof(struct periplex_pwm), GFP_KERNEL);
     if (!pwm)
@@ -136,24 +132,21 @@ static int pwm_clk_probe(struct platform_device *pdev)
         goto err_free_pwm;
     }
 
-    if (!np)
+    if (device_property_read_u32(&pdev->dev, "periplex-id", &pwm->periplex_id))
     {
-        dev_err(dev, "No device tree node found\n");
-        ret = -ENODEV;
-        goto err_free_pwm;
-    }
-
-    ret = of_property_read_u32(np, "periplex-id", &pwm->periplex_id);
-    if (ret)
-    {
-        dev_err(dev, "Failed to read periplex-id from device tree\n");
-        goto err_free_pwm;
+        dev_err(&pdev->dev, "Failed to read periplex-id from device tree for pwm\n");
     }
 
     pwm->chip.dev = &pdev->dev;
     pwm->chip.base = -1; // Let the framework assign a base
     pwm->chip.ops = &pwm_periplex_ops;
     pwm->chip.npwm = 1;
+
+    pdev->periplex_id = pwm->periplex_id;
+    pdev->get_periplex_data = read_data_for_pwm;
+
+    periplex_link_device(pdev);
+    periplex_set_drvdata(pdev, pwm);
 
     ret = pwmchip_add(&pwm->chip);
     if (ret < 0)
@@ -162,33 +155,20 @@ static int pwm_clk_probe(struct platform_device *pdev)
         goto err_free_pwm;
     }
 
-    pwm_d->pdev = pdev;
-    pwm_d->data = pwm;
-    pwm_d->get_periplex_data = read_data_for_pwm;
-
-    platform_set_drvdata(pdev, pwm_d);
-    periplex_device_register(pdev, pwm->periplex_id);
-
     pr_info("pwm driver inserted successfully...\n");
     return 0;
 
 err_free_pwm:
     kfree(pwm);
-err_free_pwm_d:
-    kfree(pwm_d);
     return ret;
 }
 
-static int pwm_clk_remove(struct platform_device *pdev)
+static int pwm_clk_remove(struct periplex_device *pdev)
 {
-    struct periplex_device *pwm_d = platform_get_drvdata(pdev);
-    struct periplex_pwm *pwm = pwm_d->data;
-    // int periplex_id = pwm->periplex_id;
-    // pr_info("pwm removed is %d\n", periplex_id);
+    struct periplex_pwm *pwm = periplex_get_drvdata(pdev);
     pwmchip_remove(&pwm->chip);
-    periplex_device_unregister(pdev);
+    periplex_unlink_device(pdev);
     kfree(pwm);
-    kfree(pwm_d);
     pr_info("pwm driver removed successfully...\n");
     return 0;
 }
@@ -199,7 +179,7 @@ static const struct of_device_id periplex_pwm_dt_match[] = {
 };
 MODULE_DEVICE_TABLE(of, periplex_pwm_dt_match);
 
-static struct platform_driver periplex_pwm_driver = {
+static struct periplex_driver periplex_pwm_driver = {
     .probe = pwm_clk_probe,
     .remove = pwm_clk_remove,
     .driver = {
@@ -207,10 +187,9 @@ static struct platform_driver periplex_pwm_driver = {
         .of_match_table = periplex_pwm_dt_match,
     },
 };
-module_platform_driver(periplex_pwm_driver);
+module_periplex_driver(periplex_pwm_driver);
 
-MODULE_ALIAS("platform:pwm");
+MODULE_ALIAS("periplex:pwm");
 MODULE_AUTHOR("Vatsal Kevadiya <vhkevadiya15@gmail.com>");
 MODULE_DESCRIPTION("PWM Device Driver with read/write operations");
 MODULE_LICENSE("GPL");
-

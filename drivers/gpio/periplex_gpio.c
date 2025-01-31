@@ -1,9 +1,9 @@
 /*
- ** Significant of gpio.c file :
- ** 1. Make multiple gpio chip with the use of dtso and create the
- ** gpiochip-* series into the /dev.
- ** 2. Allow get/set functionality for any specific (gpiochip*-). 
- ** 3. interrupt functionality implement for any pins of gpiochip.
+** Significant of gpio.c file :
+** 1. Make multiple gpio chip with the use of dtso and create the
+** gpiochip-* series into the /dev.
+** 2. Allow get/set functionality for any specific (gpiochip*-).
+** 3. interrupt functionality implement for any pins of gpiochip.
 */
 
 #include <linux/module.h>
@@ -16,8 +16,6 @@
 #include <linux/interrupt.h>
 #include <linux/of.h>
 #include <linux/gpio/driver.h>
-#include <linux/platform_device.h>
-#include <linux/peripheral.h>
 
 #include <asm/uaccess.h>
 #include <asm/errno.h>
@@ -25,6 +23,7 @@
 /*
 ** header file through which device can communicate and generated
 */
+#include <linux/peripheral.h>
 // #include "include/peripheral.h"
 
 #define DRIVER_NAME "periplex-gpio"
@@ -34,12 +33,13 @@ static int debug = 0;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Enable or disable debug mode");
 
+/* Macro to conditionally print debug info */
 #define GPIO_DEBUG(fmt, ...)             \
-	do                                   \
-	{                                    \
-		if (debug)                       \
-			pr_info(fmt, ##__VA_ARGS__); \
-	} while (0)
+    do                                   \
+    {                                    \
+        if (debug)                       \
+            pr_info(fmt, ##__VA_ARGS__); \
+    } while (0)
 
 /*
 ** waitqueue used for internal gpio operations
@@ -85,12 +85,12 @@ static int periplex_gpio_write(struct gpio_chip *gpio, u8 value)
 
 char read_data_gpio;
 
-int read_data_for_gpio(struct periplex_device *dev, char *message, const int len)
+int read_data_for_gpio(struct periplex_device *pdev, char *message, const int len)
 {
     int pins, i;
     unsigned int bitmask;
     unsigned long flags;
-    struct periplex_gpio *gpio = dev->data;
+    struct periplex_gpio *gpio = periplex_get_drvdata(pdev);
     read_data_gpio = message[0];
     bitmask = 0x01;
 
@@ -281,7 +281,6 @@ static void periplex_gpio_irq_enable(struct irq_data *data)
     }
     GPIO_DEBUG("irq_enable\n");
 
-
     gpio->interrupt_pins = gpio->interrupt_pins | (1 << data->hwirq);
     irq_number = (gpio->interrupt_pins << 8);
 
@@ -348,7 +347,7 @@ static int periplex_gpio_to_irq(struct gpio_chip *gc, unsigned int offset)
     return irq;
 }
 
-static int periplex_gpio_probe(struct platform_device *pdev)
+static int periplex_gpio_probe(struct periplex_device *pdev)
 {
     int ret;
     int periplex_id;
@@ -356,15 +355,6 @@ static int periplex_gpio_probe(struct platform_device *pdev)
     struct device_node *np = dev->of_node;
     struct periplex_gpio *gpio;
     struct gpio_irq_chip *girq;
-    struct periplex_device *gpio_d;
-
-    // Allocate memory for the periplex device structure
-    gpio_d = kzalloc(sizeof(struct periplex_device), GFP_KERNEL);
-    if (!gpio_d)
-    {
-        ret = -ENOMEM;
-        goto err_free_gpio_d;
-    }
 
     // Allocate memory for the periplex GPIO structure
     gpio = kzalloc(sizeof(struct periplex_gpio), GFP_KERNEL);
@@ -374,10 +364,16 @@ static int periplex_gpio_probe(struct platform_device *pdev)
         goto err_free_gpio;
     }
 
+    // Initialize mutex
+    mutex_init(&gpio->lock);
+
+    /* 	initialize gpio internal wait queue */
+    init_waitqueue_head(&wait_queue_gpio_ioctl);
+
     gpio->irq_lines = kzalloc(sizeof(struct periplex_gpio_irq_line) * 8, GFP_KERNEL);
     if (!gpio->irq_lines)
     {
-        dev_err(dev, "Failed to allocate irq_lines\n");
+        dev_err(&pdev->dev, "Failed to allocate irq_lines\n");
         ret = -ENOMEM;
         goto err_free_gpio;
     }
@@ -387,7 +383,6 @@ static int periplex_gpio_probe(struct platform_device *pdev)
         dev_err(dev, "No device tree node found\n");
         ret = -ENODEV;
     }
-
     // Read periplex-id from device tree
     ret = of_property_read_u32(np, "periplex-id", &periplex_id);
     if (ret)
@@ -444,8 +439,12 @@ static int periplex_gpio_probe(struct platform_device *pdev)
     girq->handler = handle_level_irq;
     girq->default_type = IRQ_TYPE_NONE;
 
-    // Initialize mutex
-    mutex_init(&gpio->lock);
+    pdev->periplex_id = periplex_id;
+    pdev->get_periplex_data = read_data_for_gpio;
+
+    /* This is mandatory part to register device with periplex */
+    periplex_link_device(pdev);
+    periplex_set_drvdata(pdev, gpio);
 
     // Register the GPIO chip
     ret = gpiochip_add_data(&gpio->chip, gpio);
@@ -455,17 +454,6 @@ static int periplex_gpio_probe(struct platform_device *pdev)
         goto err_remove_irq_domain;
     }
 
-    // Register the periplex device
-    gpio_d->pdev = pdev;
-    gpio_d->data = gpio;
-    gpio_d->get_periplex_data = read_data_for_gpio;
-
-    platform_set_drvdata(pdev, gpio_d);
-    periplex_device_register(pdev, periplex_id);
-
-    /* 	initialize gpio internal wait queue */
-    init_waitqueue_head(&wait_queue_gpio_ioctl);
-
     pr_info("GPIO driver is inserted successfully...%d\n", gpio->chip.base);
     return 0;
 
@@ -473,24 +461,13 @@ err_remove_irq_domain:
     irq_domain_remove(gpio->irq_domain);
 err_free_gpio:
     kfree(gpio);
-err_free_gpio_d:
-    kfree(gpio_d);
 
     return ret;
 }
 
-static int periplex_gpio_remove(struct platform_device *pdev)
+static int periplex_gpio_remove(struct periplex_device *pdev)
 {
-    struct periplex_device *gpio_d = platform_get_drvdata(pdev);
-    struct periplex_gpio *gpio;
-
-    if (!gpio_d)
-    {
-        dev_err(&pdev->dev, "No platform data found\n");
-        return -ENODEV;
-    }
-
-    gpio = gpio_d->data;
+    struct periplex_gpio *gpio = periplex_get_drvdata(pdev);
     if (!gpio)
     {
         dev_err(&pdev->dev, "No GPIO data found\n");
@@ -504,12 +481,11 @@ static int periplex_gpio_remove(struct platform_device *pdev)
     irq_domain_remove(gpio->irq_domain);
 
     // Unregister the device
-    periplex_device_unregister(pdev);
+    periplex_unlink_device(pdev);
 
     // Free dynamically allocated memory
     kfree(gpio->irq_lines);
     kfree(gpio);
-    kfree(gpio_d);
 
     pr_info("GPIO driver is removed successfully\n");
     return 0;
@@ -521,7 +497,7 @@ struct of_device_id periplex_gpio_dt_match[] = {
 };
 MODULE_DEVICE_TABLE(of, periplex_gpio_dt_match);
 
-struct platform_driver periplex_gpio_driver = {
+struct periplex_driver periplex_gpio_driver = {
     .probe = periplex_gpio_probe,
     .remove = periplex_gpio_remove,
     .driver = {
@@ -529,9 +505,9 @@ struct platform_driver periplex_gpio_driver = {
         .of_match_table = periplex_gpio_dt_match,
     },
 };
-module_platform_driver(periplex_gpio_driver);
+module_periplex_driver(periplex_gpio_driver);
 
-MODULE_ALIAS("platform:gpio");
+MODULE_ALIAS("periplex:gpio");
 MODULE_AUTHOR("vatsal kevadiya <vhkeavdiya15@gamil.com>");
 MODULE_DESCRIPTION("GPIO Device Driver with read/write operations");
 MODULE_LICENSE("GPL");
