@@ -478,6 +478,12 @@ config VCC
 	help
 	  Support for Sun logical domain consoles.
 
+config PERIPLEX_UART
+	tristate "read/write data"
+	depends on PERIPLEX
+	help
+		read/write data.
+
 source "drivers/tty/hvc/Kconfig"
 
 config RPMSG_TTY

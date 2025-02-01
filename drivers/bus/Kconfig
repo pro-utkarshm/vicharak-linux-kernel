@@ -240,6 +240,11 @@ config DA8XX_MSTPRI
 	  configuration. Allows to adjust the priorities of all master
 	  peripherals.
 
+config PERIPLEX
+	bool "parent driver of all peripherals"
+	help
+	  Driver used for read/write operations for/from peripheral's.
+
 source "drivers/bus/fsl-mc/Kconfig"
 source "drivers/bus/mhi/Kconfig"
 

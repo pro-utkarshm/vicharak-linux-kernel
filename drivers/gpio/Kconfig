@@ -1648,4 +1648,10 @@ config GPIO_MOCKUP
 	  tools/testing/selftests/gpio/gpio-mockup.sh. Reference the usage in
 	  it.
 
+config PERIPLEX_GPIO
+	tristate "read/write data"
+	depends on PERIPLEX
+	help
+		read/write data.
+
 endif

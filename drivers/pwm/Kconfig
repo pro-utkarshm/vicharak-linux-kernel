@@ -591,4 +591,10 @@ config PWM_ZX
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-zx.
 
+config PERIPLEX_PWM
+	tristate "PWM for read/write"
+	depends on PERIPLEX
+	help
+	  to perform read/write operations.
+
 endif
