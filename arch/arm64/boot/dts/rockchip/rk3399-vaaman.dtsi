@@ -6,6 +6,7 @@
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/usb/pd.h>
+#include <dt-bindings/display/media-bus-format.h>
 #include "rk3399.dtsi"
 #include "rk3399-opp.dtsi"
 
@@ -99,6 +100,28 @@
 		};
 	};
 
+	edp-panel {
+		compatible = "simple-panel";
+		status = "okay";
+
+		port {
+			panel_in_edp: endpoint {
+				remote-endpoint = <&edp_out_panel>;
+			};
+		};
+	};
+
+	camera_pwdn_gpio: camera-pwdn-gpio {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "camera_pwdn_gpio";
+		regulator-always-on;
+		regulator-boot-on;
+		enable-active-high;
+		gpio = <&gpio1 RK_PB5 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_pwdn_gpio>;
+	};
 	sdio_pwrseq: sdio-pwrseq {
 		compatible = "mmc-pwrseq-simple";
 		clocks = <&rk808 1>;
@@ -479,6 +502,24 @@
 	status = "disabled";
 };
 
+&edp {
+	status = "okay";
+	force-hpd;
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		edp_out: port@1 {
+			reg = <1>;
+
+			edp_out_panel: endpoint {
+				remote-endpoint = <&panel_in_edp>;
+			};
+		};
+	};
+};
+
 &i2c0 {
 	clock-frequency = <400000>;
 	i2c-scl-rising-time-ns = <168>;
@@ -794,6 +835,22 @@
 	i2c-scl-falling-time-ns = <30>;
 	status = "okay";
 
+	camera_fpga: camera-fpga@69 {
+		compatible = "rockchip,virtual-camera";
+		reg = <0x69>;
+		width = <1280>;
+		height = <1024>;
+		bus-format = <MEDIA_BUS_FMT_RGB888_1X24>;
+
+		port {
+			ucam_out1: endpoint {
+				remote-endpoint = <&mipi_in_ucam1>;
+				link-frequencies = /bits/ 64 <700000000>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+
 	usbc0: fusb302@22 {
 		compatible = "fcs,fusb302";
 		reg = <0x22>;
@@ -1031,6 +1088,13 @@
 				<0 RK_PB2 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+
+	camera {
+		cam_pwdn_gpio: cam-pwdn-gpio {
+			rockchip,pins =
+				<1 RK_PB5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
 };
 
 &pmu_io_domains {
@@ -1146,6 +1210,46 @@
 	};
 };
 
+&rkisp1_1 {
+	status = "okay";
+
+	port {
+		isp1_mipi_in: endpoint {
+			remote-endpoint = <&dphy_tx1rx1_out>;
+		};
+	};
+};
+
+&isp1_mmu {
+	status = "okay";
+};
+
+&mipi_dphy_tx1rx1 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			mipi_in_ucam1: endpoint {
+				remote-endpoint = <&ucam_out1>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			dphy_tx1rx1_out: endpoint {
+				remote-endpoint = <&isp1_mipi_in>;
+			};
+		};
+	};
+};
+
 &tcphy1 {
 	status = "okay";
 };
@@ -1242,6 +1346,20 @@
 
 &vopl {
 	rockchip,grf = <&grf>;
+	assigned-clocks = <&cru DCLK_VOP1_DIV>;
+	assigned-clock-parents = <&cru PLL_CPLL>;
+	status = "okay";
+};
+
+&vopl_mmu {
+	status = "okay";
+};
+
+&edp_in_vopl {
+	status = "okay";
+};
+
+&vopl {
 	assigned-clocks = <&cru DCLK_VOP1_DIV>;
 	assigned-clock-parents = <&cru PLL_CPLL>;
 	status = "okay";

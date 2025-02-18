@@ -6,7 +6,6 @@ dtbo-$(CONFIG_BOARD_VICHARAK_VAAMAN) += \
 	rk3399-vaaman-dsi-waveshare.dtbo \
 	rk3399-vaaman-dwc3-0-host.dtbo \
 	rk3399-vaaman-dwc3-0-otg.dtbo \
-	rk3399-vaaman-fpga-communication.dtbo \
 	rk3399-vaaman-i2c2.dtbo \
 	rk3399-vaaman-i2c6.dtbo \
 	rk3399-vaaman-pwm0.dtbo \
