@@ -4,7 +4,9 @@
 #include <linux/device.h>
 #include <linux/module.h>
 
-/* Common Structure for congigration frame(use in write case) */
+/*
+** Common Structure for configuration case
+*/
 struct kernel_config
 {
     int peri_id;
@@ -12,30 +14,41 @@ struct kernel_config
     uint8_t configuration_id;
 };
 
-/* Common Structure for data frame(use in write case) */
+/*
+** Common Structure for write case, means use when data are transfer
+** from peripheral's(kernel-space) to rah service(user-space)
+*/
 struct kernel_data
 {
-    int length;
     int peri_id;
-    int minor;
+    int length;
 };
 
-/* common structure used in read case */
-struct read_buffer
+/*
+** common structure used in read case, means use when data are transfer
+** from  rah-service (user-space) to peripheral's (kernel-space)
+*/
+struct kernel_buffer
 {
     char *message;
     int length;
     int minor;
 };
 
-/*set configuration for a specific peripheral(use in write case) */
+/*
+** set configuration for a specific peripheral(use in write case)
+*/
 void set_periplex_configuration(int peri_id, uint8_t config_id,
                                 int configuration);
 
-/*set data for a specific peripheral (use in write case) */
+/*
+** set data for a specific peripheral (use in write case)
+*/
 void set_periplex_data(int peri_id, int length, char *message);
 
-/* Structure representing periplex device */
+/*
+** Structure representing periplex device
+*/
 struct periplex_device
 {
     void *data;
@@ -46,7 +59,9 @@ struct periplex_device
                              char *message, const int len);
 };
 
-/* Structure representing periplex driver */
+/*
+** Structure representing periplex driver
+*/
 struct periplex_driver
 {
     struct device_driver driver;
@@ -55,23 +70,34 @@ struct periplex_driver
     int (*remove)(struct periplex_device *pdev);
 };
 
-/* periplex bus type */
+/*
+** periplex bus type
+*/
 extern struct bus_type periplex_bus_type;
 
-/* Function prototypes for bus operations */
+/*
+** Function prototypes for bus operations
+*/
 extern int periplex_link_device(struct periplex_device *pdev);
 extern void periplex_unlink_device(struct periplex_device *pdev);
 extern int periplex_register_driver(struct periplex_driver *drv);
 extern void periplex_unregister_driver(struct periplex_driver *drv);
 
-/* Helper macros to convert between types */
+/*
+** Helper macros to convert between types
+*/
 #define to_periplex_device(d) container_of(d, struct periplex_device, dev)
 #define to_periplex_driver(d) container_of(d, struct periplex_driver, driver)
 
-/* Macro to simplify driver registration */
+/*
+** Macro to simplify driver registration
+*/
 #define module_periplex_driver(__drv) \
     module_driver(__drv, periplex_register_driver, periplex_unregister_driver)
 
+/*
+** methods are use for set/get the driver data
+*/
 static inline void *periplex_get_drvdata(const struct periplex_device *pdev)
 {
     return dev_get_drvdata(&pdev->dev);
