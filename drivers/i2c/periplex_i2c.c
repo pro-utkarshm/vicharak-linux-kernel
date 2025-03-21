@@ -65,8 +65,53 @@ u32 i2c_func(struct i2c_adapter *adapter)
 			I2C_FUNC_SMBUS_BLOCK_DATA);
 }
 
-char *read_data_i2c;
-int data_from_usr;
+char *read_data_i2c = NULL;
+int read_length_i2c = 0;
+
+static int wait_for_i2c_write_ack_response(u16 addr, const char *debug_prefix)
+{
+	int ret;
+
+	/* Reset wait flag before waiting */
+	wait_queue_flag_com_i2c = 0;
+
+	/* Wait until data is available or interrupted */
+	ret = wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+
+	/* Check if wait was interrupted or failed */
+	if (ret < 0)
+	{
+		pr_err("Wait interrupted with error: %d\n", ret);
+		return ret;
+	}
+
+	/* Check if data buffer is valid */
+	if (read_data_i2c == NULL)
+	{
+		pr_err("%s: read_data_i2c is NULL\n", debug_prefix);
+		return -EFAULT;
+	}
+
+	I2C_DEBUG("%s: read_data_i2c[0] = %d\n", debug_prefix, read_data_i2c[0]);
+
+	/* Validate device presence by checking returned address */
+	if (read_data_i2c[0] != addr)
+	{
+		I2C_DEBUG("%s: No device present at addr 0x%02x\n", debug_prefix, addr);
+		ret = -ENXIO; /* No such device or address */
+	}
+	else
+	{
+		I2C_DEBUG("%s: Device present at addr 0x%02x\n", debug_prefix, addr);
+		ret = 0;
+	}
+
+	/* Free the allocated memory */
+	kfree(read_data_i2c);
+	read_data_i2c = NULL;
+
+	return ret;
+}
 
 /*
 ** this functions is used in read for i2c
@@ -74,7 +119,7 @@ int data_from_usr;
 int read_data_for_i2c(struct periplex_device *pdev, char *message,
 					  const int len)
 {
-	data_from_usr = len;
+	read_length_i2c = len;
 	I2C_DEBUG("i2c read calling\n");
 	I2C_DEBUG("length is %d\n", len);
 
@@ -106,6 +151,7 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 					int num)
 {
 	int i = 0;
+	int ret = 0;
 	char *message = NULL;
 	int *p_id;
 	int periplex_id;
@@ -119,7 +165,7 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	p_id = adap->dev.driver_data;
 	periplex_id = *p_id;
 
-	I2C_DEBUG("i2c_xfer called with %d messages\n", num);
+	I2C_DEBUG("i2c_xfer called with %d process\n", num);
 
 	for (i = 0; i < num; i++)
 	{
@@ -148,13 +194,19 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 			set_periplex_configuration(periplex_id, 1, 1);
 			set_periplex_data(periplex_id, 2, message);
 			kfree(message);
-			message = NULL;
 
 			while (index < msg_temp->len)
 			{
 				/* Reset wait flag before waiting */
 				wait_queue_flag_com_i2c = 0;
-				wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+				ret = wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+
+				if (ret < 0)
+				{
+					// Wait was interrupted or failed
+					pr_err("Wait interrupted with error: %d\n", ret);
+					return ret;
+				}
 
 				if (!read_data_i2c)
 				{
@@ -164,7 +216,7 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 
 				/* Calculate remaining bytes and copy size */
 				remaining = msg_temp->len - index;
-				copy_size = min(remaining, data_from_usr);
+				copy_size = min(remaining, read_length_i2c);
 
 				memcpy(msg_temp->buf + index, read_data_i2c, copy_size);
 				index += copy_size;
@@ -173,7 +225,6 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 						  copy_size, msg_temp->len - index);
 
 				kfree(read_data_i2c);
-				read_data_i2c = NULL;
 			}
 		}
 		else
@@ -198,7 +249,12 @@ static s32 i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 			set_periplex_configuration(periplex_id, 1, 1);
 			set_periplex_data(periplex_id, msg_temp->len + 2, message);
 			kfree(message);
-			message = NULL;
+
+			ret = wait_for_i2c_write_ack_response(msg_temp->addr, "i2c_xfer_write");
+			if (ret < 0)
+				return ret;
+
+			pr_info("i2c_xfer: write data done\n");
 		}
 	}
 	return num; // Return number of messages processed successfully
@@ -240,73 +296,275 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 			return -ENOMEM;
 
 		// Force RW bit to 1 (read mode) regardless of read_write parameter
-		message[0] = (addr << 1) | 1; // Always set LSB to 1 for read
+		message[0] = (addr << 1) | read_write; // Always set LSB to 1 for read
 		message[1] = 1 << 7;		  // Quick command flag
 
-		I2C_DEBUG("Quick command: addr=0x%02x, forcing rw=1\n", addr);
+		I2C_DEBUG("Quick command: addr=0x%02x, rw=%d\n", addr, read_write);
 
 		set_periplex_configuration(periplex_id, 1, 1);
 		set_periplex_data(periplex_id, 2, message);
 		kfree(message);
 
-		// Since we're forcing read mode, we need to handle the read response
-		wait_queue_flag_com_i2c = 0;
-		wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
-
-		if (!read_data_i2c)
-			return -EFAULT;
-
-		// Check for device presence
-		if (read_data_i2c[0] == 255)
-		{
-			I2C_DEBUG("No device present at addr 0x%02x\n", addr);
-			ret = -ENXIO;
-		}
-		else
-		{
-			I2C_DEBUG("Device present at addr 0x%02x\n", addr);
-		}
-		kfree(read_data_i2c);
+		I2C_DEBUG("waiting for I2C_SMBUS_QUICK\n");
+		ret = wait_for_i2c_write_ack_response(addr, "smbus_quick");
+		if (ret < 0)
+			return ret;
 		break;
 
 	case I2C_SMBUS_BYTE:
-		message = kmalloc(2, GFP_KERNEL);
-		if (!message)
-			return -ENOMEM;
-
-		message[0] = addr << 1 | (read_write & 1);
-		message[1] = 1 << 7;
-
-		set_periplex_configuration(periplex_id, 1, 1);
-		set_periplex_data(periplex_id, 2, message);
-		kfree(message);
-
-		if (read_write == I2C_SMBUS_READ && data)
+		if (read_write == I2C_SMBUS_WRITE)
 		{
-			wait_queue_flag_com_i2c = 0;
-			wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+			message = kmalloc(3, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
 
-			I2C_DEBUG("wait for the SMBUS_slow byte\n");
+			message = kmalloc(3, GFP_KERNEL);
+			message[0] = addr << 1 | read_write;
+			message[1] = 1;
+			message[2] = command;
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 3, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (WRITE) for the I2C_SMBUS_BYTE\n");
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_byte");
+			if (ret < 0)
+				return ret;
+		}
+		else
+		{
+			// write register address on device address
+			message = kmalloc(3, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | 0;
+			message[1] = 1;
+			message[2] = command;
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 3, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (READ) for the I2C_SMBUS_BYTE\n");
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_byte");
+			if (ret < 0)
+				return ret;
+
+			message = kmalloc(2, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | read_write;
+			message[1] = 1;
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 2, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (READ) for the I2C_SMBUS_BYTE\n");
+			wait_queue_flag_com_i2c = 0;
+			ret = wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+			if (ret < 0)
+			{
+				// Wait was interrupted or failed
+				pr_err("Wait interrupted with error: %d\n", ret);
+				return ret;
+			}
+
+			// check what is the response of one byte
+			if (read_data_i2c[0] == 0)
+			{
+				kfree(read_data_i2c);
+				return 0;
+			}
+			else
+			{
+				kfree(read_data_i2c);
+				return -ENXIO;
+			}
+		}
+		break;
+
+	case I2C_SMBUS_BYTE_DATA:
+		if (read_write == I2C_SMBUS_WRITE)
+		{
+			message = kmalloc(4, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | read_write;
+			message[1] = 2;
+			message[2] = command;
+			message[3] = data->byte;
+
+			I2C_DEBUG("data->byte %02x\n", data->byte);
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 4, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (WRITE) for I2C_SMBUS_BYTE_DATA\n");
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_byte_data");
+			if (ret < 0)
+				return ret;
+		}
+		else
+		{
+			// write register address on device address
+			message = kmalloc(3, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | 0;
+			message[1] = 1;
+			message[2] = command;
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 3, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (READ) for the I2C_SMBUS_BYTE_DATA\n");
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_byte_data");
+			if (ret < 0)
+				return ret;
+
+			message = kmalloc(2, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | read_write;
+			message[1] = 1;
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 2, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (READ) for the I2C_SMBUS_BYTE_DATA\n");
+			wait_queue_flag_com_i2c = 0;
+			ret = wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
 
 			if (!read_data_i2c)
 				return -EFAULT;
 
-			I2C_DEBUG("read_data_i2c[0] %d\n", read_data_i2c[0]);
+			data->byte = read_data_i2c[0];
 
-			if (read_data_i2c[0] == 255)
-			{
-				I2C_DEBUG("No device present\n");
-				ret = -ENXIO; // No such device or address
-			}
-			else
-			{
-				I2C_DEBUG("Device present\n");
-			}
+			I2C_DEBUG("data->byte %02x\n", data->byte);
 			kfree(read_data_i2c);
+		}
+
+		break;
+
+	case I2C_SMBUS_WORD_DATA:
+		int index = 0;
+		int remaining = 0;
+		int word_length = 2;
+		u16 msb = 0;
+		u16 lsb = 0;
+
+		if (read_write == I2C_SMBUS_WRITE)
+		{
+			message = kmalloc(5, GFP_KERNEL);
+
+			if (!message)
+				return -ENOMEM;
+
+			I2C_DEBUG("data->word %02x\n", data->word);
+
+			message[0] = addr << 1 | read_write;
+			message[1] = 3;
+			message[2] = command;
+			message[3] = (data->word >> 8) & 0xFF;
+			message[4] = (data->word & 0x00FF) & 0xFF;
+
+			I2C_DEBUG("message[3]: %02x\n", message[3]);
+			I2C_DEBUG("message[4]: %02x\n", message[4]);
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 5, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (WRITE) for I2C_SMBUS_WORD_DATA\n");
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_word_data");
+			if (ret < 0)
+				return ret;
+		}
+		else
+		{
+			// write register address on device address
+			message = kmalloc(3, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | 0;
+			message[1] = 1;
+			message[2] = command;
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 3, message);
+			kfree(message);
+
+			I2C_DEBUG("wait in (READ) for the I2C_SMBUS_WORD_DATA\n");
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_word_data");
+			if (ret < 0)
+				return ret;
+
+			message = kmalloc(2, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | read_write;
+			message[1] = word_length; // word length is 2-byte
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 2, message);
+			kfree(message);
+
+			do
+			{
+				/* Reset wait flag before waiting */
+				I2C_DEBUG("wait in (READ) for the I2C_SMBUS_WORD_DATA\n");
+				wait_queue_flag_com_i2c = 0;
+				ret = wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+
+				// Check if wait was successful
+				if (ret < 0)
+				{
+					// Wait was interrupted or failed
+					pr_err("Wait interrupted with error: %d\n", ret);
+					return ret;
+				}
+
+				if (!read_data_i2c)
+					return -EFAULT;
+
+				index += read_length_i2c;
+				remaining = word_length - index;
+
+				if (index == 1)
+				{
+					msb = read_data_i2c[0];
+				}
+				else if (index == 2)
+				{
+					lsb = read_data_i2c[0];
+					data->word = (msb << 8) | lsb;
+				}
+
+				I2C_DEBUG("word read: copied %d bytes, %d remaining\n",
+						  read_length_i2c, remaining);
+
+				kfree(read_data_i2c);
+
+			} while (remaining > 0);
 		}
 		break;
 
 	case I2C_SMBUS_BLOCK_DATA:
+		I2C_DEBUG("I2C_SMBUS_BLOCK_DATA\n");
+		break;
+
 	case I2C_SMBUS_I2C_BLOCK_DATA:
 		if (!data)
 			return -EINVAL;
@@ -317,7 +575,7 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 			if (!message)
 				return -ENOMEM;
 
-			message[0] = addr << 1;			 // Slave address + Write bit
+			message[0] = addr << 1 | read_write; // Slave address + Write bit
 			message[1] = data->block[0] + 1; // Length byte
 			message[2] = command;			 // Command/Register address
 			memcpy(message + 3, &data->block[1], data->block[0]);
@@ -329,31 +587,55 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 			set_periplex_configuration(periplex_id, 1, 1);
 			set_periplex_data(periplex_id, data->block[0] + 3, message);
 			kfree(message);
+
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_i2c_block_data");
+			if (ret < 0)
+				return ret;
 		}
 		else
 		{
 			int index = 0;
-			int remaining;
+			int remaining = 0;
 
-			message = kmalloc(5, GFP_KERNEL);
+			message = kmalloc(3, GFP_KERNEL);
 			if (!message)
 				return -ENOMEM;
 
 			message[0] = addr << 1 | 0;
 			message[1] = 1;
 			message[2] = command;
-			message[3] = addr << 1 | 1;
-			message[4] = (size == I2C_SMBUS_BLOCK_DATA) ? I2C_SMBUS_BLOCK_MAX : data->block[0];
 
 			set_periplex_configuration(periplex_id, 1, 1);
-			set_periplex_data(periplex_id, 5, message);
+			set_periplex_data(periplex_id, 3, message);
+			kfree(message);
+
+			ret = wait_for_i2c_write_ack_response(addr, "smbus_i2c_block_data");
+			if (ret < 0)
+				return ret;
+
+			message = kmalloc(2, GFP_KERNEL);
+			if (!message)
+				return -ENOMEM;
+
+			message[0] = addr << 1 | read_write;
+			message[1] = (size == I2C_SMBUS_BLOCK_DATA) ? I2C_SMBUS_BLOCK_MAX : data->block[0];
+
+			set_periplex_configuration(periplex_id, 1, 1);
+			set_periplex_data(periplex_id, 2, message);
 			kfree(message);
 
 			do
 			{
 				/* Reset wait flag before waiting */
 				wait_queue_flag_com_i2c = 0;
-				wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+				ret = wait_event_interruptible(wait_queue_i2c_ioctl, wait_queue_flag_com_i2c != 0);
+
+				if (ret < 0)
+				{
+					// Wait was interrupted or failed
+					pr_err("Wait interrupted with error: %d\n", ret);
+					return ret;
+				}
 
 				if (!read_data_i2c)
 					return -EFAULT;
@@ -363,16 +645,15 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 					break;
 
 				memcpy(data->block + index + 1, read_data_i2c,
-					   min(remaining, data_from_usr));
-				index += data_from_usr;
+					   min(remaining, read_length_i2c));
+				index += read_length_i2c;
 
 				I2C_DEBUG("Block read: copied %d bytes, %d remaining\n",
-						  data_from_usr, remaining - data_from_usr);
+						  read_length_i2c, remaining - read_length_i2c);
 
 				kfree(read_data_i2c);
-				read_data_i2c = NULL;
 
-			} while (remaining > 0);
+			} while ((remaining - read_length_i2c) > 0);
 		}
 		break;
 
@@ -397,8 +678,8 @@ static struct i2c_algorithm i2c_algorithm_1f = {
 */
 static int periplex_i2c_probe(struct periplex_device *pdev)
 {
-	int ret;
-	int divider;
+	int ret = 0;
+	int divider = 0;
 	int *periplex_id = kmalloc(sizeof(sizeof(int)), GFP_KERNEL);
 	struct i2c_adapter *i2c_adapter;
 	struct i2c_timings i2c_timings;
@@ -418,7 +699,7 @@ static int periplex_i2c_probe(struct periplex_device *pdev)
 	i2c_adapter->owner = THIS_MODULE;
 	i2c_adapter->class = I2C_CLASS_HWMON;
 	i2c_adapter->algo = &i2c_algorithm_1f;
-	memcpy(i2c_adapter->name, "I2C", 3);
+	memcpy(i2c_adapter->name, "I2C-PERIPLEX", 12);
 	i2c_adapter->nr = -1;
 	i2c_adapter->dev.driver_data = periplex_id;
 	i2c_adapter->dev.parent = &pdev->dev;

@@ -34,28 +34,28 @@
 // #include "include/peripheral.h"
 
 /*
-** ioctl call for transfer configuration from kernel space to user-space (used only in
-** write case)
+** ioctl call for transfer configuration structure from kernel space to user-space
+** (used only in configuration write case)
 */
-#define RD_CONFIGURATION _IOW('a', 'a', struct kernel_config *)
+#define WAIR_FOR_CONFIGURATION _IOW('a', 'a', struct kernel_config *)
+
+/*
+** this is ioctl call for acknowledge the interrupt call form user space to kernel
+** space (used in configuration transfer)
+*/
+#define DONE_CONFIGURATION _IOR('a', 'b', int *)
 
 /*
 ** ioctl call for transfer structure from kernel space to user-space
 ** (used only in write case)
 */
-#define RD_STRUCTURE _IOW('a', 'b', struct kernel_data *)
+#define WAIT_FOR_STRUCTURE _IOW('a', 'c', struct kernel_data *)
 
 /*
 ** ioctl call for reading the address of message from user-space and then transfer
 ** actual message from kernel-space to user-space(used only in write case)
 */
-#define RD_ADDRESS _IOW('a', 'c', unsigned long *)
-
-/*
-** ioctl call for transfer data from user-space to kernel-space
-** (used only in read case)
-*/
-#define WR_VALUE_ADDRESS _IOR('a', 'd', unsigned long *)
+#define SND_ADDRESS _IOW('a', 'd', unsigned long *)
 
 /*
 ** this is ioctl call for acknowledge the interrupt call form user side to kernel
@@ -64,38 +64,38 @@
 #define DONE_DATA _IOR('a', 'e', int *)
 
 /*
-** this is ioctl call for acknowledge the interrupt call form user side to kernel
-** side(used in configuration transfer)
+** ioctl call for transfer data from user-space to kernel-space
+** (used only in read case)
 */
-#define DONE_CONFIGURATION _IOR('a', 'f', int *)
+#define SND_READ_STRUCTURE _IOR('a', 'f', unsigned long *)
 
 static int register_count = 0;
 
 /* these variable are used in write case */
-char *write_message;
-struct kernel_data w_data;
-struct kernel_config w_config;
+char *write_message = NULL;
+struct kernel_data w_data = {0};
+struct kernel_config w_config = {0};
 unsigned long write_message_address;
 
 /* these variable are used in read case */
-char *read_message;
-struct read_buffer r_data;
+char *read_message = NULL;
+struct kernel_buffer r_data = {0};
 
 /* Wait queue and flag for data  */
-wait_queue_head_t wait_queue_data_ioctl;
-int wait_queue_flag_data;
+wait_queue_head_t wait_data_queue_ioctl;
+int wait_data_queue_flag;
 
 /* Wait queue and flag for ack data  */
-wait_queue_head_t wait_queue_done_data_ioctl;
-int wait_queue_flag_done_data;
+wait_queue_head_t wait_done_data_queue_ioctl;
+int wait_done_data_queue_flag;
 
 /* Wait queue and flag for config  */
-wait_queue_head_t wait_queue_config_ioctl;
-int wait_queue_flag_config;
+wait_queue_head_t wait_configuration_queue_ioctl;
+int wait_configuration_queue_flag;
 
 /* Wait queue and flag for ack config  */
-wait_queue_head_t wait_queue_done_configuration_ioctl;
-int wait_queue_flag_done_configuration;
+wait_queue_head_t wait_done_configuration_queue_ioctl;
+int wait_done_configuration_queue_flag;
 
 struct mutex periplex_mutex;
 
@@ -255,12 +255,12 @@ void set_periplex_configuration(int peri_id, uint8_t config_id, int configuratio
 	w_config.configuration_id = config_id;
 	w_config.configuration = configuration;
 
-	wait_queue_flag_config = 1;
-	wake_up_interruptible(&wait_queue_config_ioctl);
+	wait_configuration_queue_flag = 1;
+	wake_up_interruptible(&wait_configuration_queue_ioctl);
 
-	wait_queue_flag_done_configuration = 0;
-	wait_event_interruptible(wait_queue_done_configuration_ioctl,
-							 wait_queue_flag_done_configuration != 0);
+	wait_done_configuration_queue_flag = 0;
+	wait_event_interruptible(wait_done_configuration_queue_ioctl,
+							 wait_done_configuration_queue_flag != 0);
 
 	mutex_unlock(&periplex_mutex);
 }
@@ -274,17 +274,26 @@ void set_periplex_data(int peri_id, int length, char *message)
 	w_data.length = length;
 
 	write_message = kmalloc(length, GFP_KERNEL);
-	if (memcpy(write_message, message, length) == NULL)
+	if (write_message == NULL)
 	{
-		pr_err("Not able to copy\n");
+		pr_err("Memory allocation failed\n");
+		mutex_unlock(&periplex_mutex);
+		return;
 	}
 
-	wait_queue_flag_data = 1;
-	wake_up_interruptible(&wait_queue_data_ioctl);
+	if (memcpy(write_message, message, length) == NULL)
+	{
+		pr_err("Memory copy failed\n");
+		kfree(write_message);
+		mutex_unlock(&periplex_mutex);
+		return;
+	}
 
-	wait_queue_flag_done_data = 0;
-	wait_event_interruptible(wait_queue_done_data_ioctl,
-							 wait_queue_flag_done_data != 0);
+	wait_data_queue_flag = 1;
+	wake_up_interruptible(&wait_data_queue_ioctl);
+
+	wait_done_data_queue_flag = 0;
+	wait_event_interruptible(wait_done_data_queue_ioctl, wait_done_data_queue_flag != 0);
 
 	mutex_unlock(&periplex_mutex);
 }
@@ -396,19 +405,19 @@ static ssize_t device_write(struct file *file, const char __user *buf,
 /* Device ioctl function handle read/write operation from/to peripherals*/
 static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	int done_data;
-	int done_configuration;
+	int done_data = 0;
+	int done_configuration = 0;
 	struct periplex_device *peri_dev;
 	switch (cmd)
 	{
-	case WR_VALUE_ADDRESS:
+	case SND_READ_STRUCTURE:
 		if (copy_from_user(&r_data, (void *)arg, sizeof(r_data)))
 		{
 			pr_err("address is not copied perfectly");
 			break;
 		}
 		read_message = kmalloc(r_data.length, GFP_KERNEL);
-		if (!read_message)
+		if (read_message == NULL)
 		{
 			pr_err("Memory allocation for read_message failed");
 			break;
@@ -453,64 +462,76 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		kfree(read_message);
 		break;
 
-	case RD_CONFIGURATION:
-		wait_queue_flag_config = 0;
-		wait_event_interruptible(wait_queue_config_ioctl, wait_queue_flag_config != 0);
+	case WAIR_FOR_CONFIGURATION:
+		wait_configuration_queue_flag = 0;
+		wait_event_interruptible(wait_configuration_queue_ioctl, wait_configuration_queue_flag != 0);
 		if (copy_to_user((struct kernel_config *)arg, &w_config,
-						 sizeof(struct kernel_config)))
+						 sizeof(w_config)))
 		{
-			pr_err("Not able to copy structure of config");
+			pr_err("WAIT_FOR_CONFIGURATION: Not able to copy structure of config");
 		}
 		break;
 
-	case RD_STRUCTURE:
-		wait_queue_flag_data = 0;
-		wait_event_interruptible(wait_queue_data_ioctl, wait_queue_flag_data != 0);
-		if (copy_to_user((struct kernel_data *)arg, &w_data,
-						 sizeof(struct kernel_data)))
+	case WAIT_FOR_STRUCTURE:
+		wait_data_queue_flag = 0;
+		wait_event_interruptible(wait_data_queue_ioctl, wait_data_queue_flag != 0);
+		if (copy_to_user((struct kernel_data *)arg, &w_data, sizeof(w_data)))
 		{
-			pr_err("Not able to copy structure of data");
+			pr_err("WAIT_FOR_STRUCTURE: Not able to pass structure to the user-space\n");
 		}
 		break;
 
-	case RD_ADDRESS:
-		if (copy_from_user(&write_message_address, (unsigned long *)arg,
-						   sizeof(unsigned long *)))
+	case SND_ADDRESS:
+		if (copy_from_user(&write_message_address, (void __user *)arg,
+						   sizeof(write_message_address)))
 		{
-			pr_err("address is not copy perfectly");
+			pr_err("SND_ADDRESS: address is not copy perfectly");
+			kfree(write_message);
 			break;
 		}
 		if (copy_to_user((char *)write_message_address, write_message,
 						 w_data.length))
 		{
-			pr_err("message is not passed perfectly");
+			pr_err("SND_ADDRESS: message is not passed perfectly");
+			kfree(write_message);
+			break;
 		}
 		kfree(write_message);
 		break;
 
 	case DONE_DATA:
-		if (copy_from_user(&done_data, (int *)arg, sizeof(done_data)))
+		if (copy_from_user(&done_data, (int __user *)arg, sizeof(done_data)))
 		{
-			pr_err("Done_data : Err!\n");
-			break;
+			pr_err("DONE_DATA: Failed to copy data from user space\n");
+			return -EFAULT;
 		}
 		if (done_data == 1)
 		{
-			wait_queue_flag_done_data = 1;
-			wake_up_interruptible(&wait_queue_done_data_ioctl);
+			wait_done_data_queue_flag = 1;
+			wake_up_interruptible(&wait_done_data_queue_ioctl);
+		}
+		else
+		{
+			pr_warn("DONE_DATA: Unexpected value for done_data: %d\n", done_data);
 		}
 		break;
 
 	case DONE_CONFIGURATION:
-		if (copy_from_user(&done_configuration, (int *)arg, sizeof(done_configuration)))
+		if (copy_from_user(&done_configuration, (int __user *)arg, sizeof(done_configuration)))
 		{
-			pr_err("Done_data : Err!\n");
-			break;
+			pr_err("Done_CONFIGURATION: Failed to copy data from user space\n");
+			return -EFAULT;
 		}
 		if (done_configuration == 1)
 		{
-			wait_queue_flag_done_configuration = 1;
-			wake_up_interruptible(&wait_queue_done_configuration_ioctl);
+			wait_done_configuration_queue_flag = 1;
+			wake_up_interruptible(&wait_done_configuration_queue_ioctl);
+		}
+		else
+		{
+			pr_warn("DONE_CONFIGURATION: Unexpected value for "
+					"done_configuration: %d\n",
+					done_configuration);
 		}
 		break;
 
@@ -535,27 +556,27 @@ static int __init ioctl_init(void)
 {
 	int ret;
 
+	/* Initialize wait queue for configuration */
+	init_waitqueue_head(&wait_configuration_queue_ioctl);
+
+	/* Initialize wait queue for reading */
+	init_waitqueue_head(&wait_data_queue_ioctl);
+
+	/* Initialize wait queue for done data */
+	init_waitqueue_head(&wait_done_data_queue_ioctl);
+
+	/* Initialize wait queue for done configuration */
+	init_waitqueue_head(&wait_done_configuration_queue_ioctl);
+
+	/* Initialize mutex */
+	mutex_init(&periplex_mutex);
+
 	/* Allocating Major Number */
 	if ((alloc_chrdev_region(&periplex_num, 0, 1, "periplex")) < 0)
 	{
 		pr_err("Cannot allocate major number for device\n");
 		return ret;
 	}
-
-	/* Initialize wait queue for configuration */
-	init_waitqueue_head(&wait_queue_config_ioctl);
-
-	/* Initialize wait queue for reading */
-	init_waitqueue_head(&wait_queue_data_ioctl);
-
-	/* Initialize wait queue for done data */
-	init_waitqueue_head(&wait_queue_done_data_ioctl);
-
-	/* Initialize wait queue for done configuration */
-	init_waitqueue_head(&wait_queue_done_configuration_ioctl);
-
-	/* Initialize mutex */
-	mutex_init(&periplex_mutex);
 
 	/* Initialize the cdev structure with fops */
 	cdev_init(&periplex_cdev, &periplex_ioctl_ops);
