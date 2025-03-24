@@ -15,7 +15,6 @@ dtbo-$(CONFIG_BOARD_VICHARAK_VAAMAN) += \
 	rk3399-vaaman-spi2-jedec-flash.dtbo \
 	rk3399-vaaman-max9867-i2s1-i2c7.dtbo
 
-
 dtbo-$(CONFIG_BOARD_VICHARAK_AXON) += \
 	rk3588-axon_v0.3-uart1.dtbo \
 	rk3588-axon_v0.3-uart4.dtbo \

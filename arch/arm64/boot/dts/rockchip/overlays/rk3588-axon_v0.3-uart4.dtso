@@ -12,7 +12,7 @@
         title ="Enable UART4 on 30 Pin GPIO Header Axon V0.3";
         compatible = "vicharak,rk3588-axon", "rockchip,rk3588";
         category = "misc";
-        exclusice = "uart4", "GPIO1_D2", "GPIO1_D3";
+        exclusive = "uart4", "GPIO1_D2", "GPIO1_D3";
         description = "Enable UART4 on GPIO1_D2 (Pin 20) For Tx and GPIO1_D3 (Pin 19) For Rx";
     };
 };
