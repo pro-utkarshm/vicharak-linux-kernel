@@ -275,6 +275,11 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 	int periplex_id;
 	char *message = NULL;
 	int ret = 0;
+	int index = 0;
+	int remaining = 0;
+	int word_length = 2;
+	u16 msb = 0;
+	u16 lsb = 0;
 
 	if (!adap || !adap->dev.driver_data)
 	{
@@ -457,12 +462,6 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 		break;
 
 	case I2C_SMBUS_WORD_DATA:
-		int index = 0;
-		int remaining = 0;
-		int word_length = 2;
-		u16 msb = 0;
-		u16 lsb = 0;
-
 		if (read_write == I2C_SMBUS_WRITE)
 		{
 			message = kmalloc(5, GFP_KERNEL);
@@ -594,8 +593,6 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adap,
 		}
 		else
 		{
-			int index = 0;
-			int remaining = 0;
 
 			message = kmalloc(3, GFP_KERNEL);
 			if (!message)
