@@ -12,7 +12,7 @@
         title ="Enable UART6 on 30 Pin GPIO Header Axon V0.3";
         compatible = "vicharak,rk3588-axon", "rockchip,rk3588";
         category = "misc";
-        exclusice = "uart6", "GPIO1_D0", "GPIO1_D1";
+        exclusive = "uart6", "GPIO1_D0", "GPIO1_D1";
         description = "Enable UART6 on GPIO1_D0 (Pin 17) For Tx and GPIO1_D1 (Pin 18) For Rx";
     };
 };

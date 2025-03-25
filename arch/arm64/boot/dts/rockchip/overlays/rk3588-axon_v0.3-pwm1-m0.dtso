@@ -9,16 +9,16 @@
 
 &{/} {
     metadata {
-        title ="Enable UART4 on 30 Pin GPIO Header Axon V0.3";
+        title ="Enable PWM1_M0 on 30 Pin GPIO Header Axon V0.3";
         compatible = "vicharak,rk3588-axon", "rockchip,rk3588";
         category = "misc";
-        exclusive = "uart4", "GPIO1_D2", "GPIO1_D3";
-        description = "Enable UART4 on GPIO1_D2 (Pin 20) For Tx and GPIO1_D3 (Pin 19) For Rx";
+        exclusive = "pwm1", "GPIO0_C0";
+        description = "Enable PWM1_M0 on GPIO0_C0 (Pin 13)";
     };
 };
 
-&uart4 {
+&pwm1{
     status = "okay";
-    pinctrl-names = "default";
-    pinctrl-0 = <&uart4m0_xfer>;
+    pinctrl-names = "active";
+	pinctrl-0 = <&pwm1m0_pins>;
 };
