@@ -124,10 +124,16 @@ static const struct output_pixfmt supported_formats[] = {
 
 static const struct v4l2_fract vcamera_max_fps = {
 	.numerator = 10000,
-	.denominator = 600000,
+	.denominator = 3600000,
 };
 
 static const struct output_mode supported_modes[] = {
+	{
+		.width = 480,
+		.height = 360,
+		.hts_def = 480 + 176,
+		.vts_def = 360 + 93,
+	},
 	{
 		.width = 640,
 		.height = 480,
