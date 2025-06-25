@@ -1,0 +1,42 @@
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+&{/} {
+    metadata {
+        title ="Enable SPI2 Ethernet (ENC28J60) support on 40 Pin GPIO Header";
+        compatible = "vicharak,rk3399-axon", "rockchip,rk3399";
+        category = "misc";
+        exclusive = "spi2", "GPIO2_B1", "GPIO2_B2", "GPIO2_B3", "GPIO2_B4";
+        description = "Enable SPI1 support for ENC28J60 Ethernet Controller with SPI Module on GPIO Header\n\t Pin 31: MISO\n\t Pin 29: MOSI\n\t Pin 33: CS\n\t Pin 7: SCLK\n\t Pin 37: GPIO4_D6 Interrupt Pin";
+    };
+};
+
+&spi2 {
+    status = "okay";
+    #address-cells = <1>;
+    #size-cells = <0>;
+
+    eth1: enc28j60@0 {
+        compatible = "microchip,enc28j60";
+        reg = <0>;
+        pinctrl-names = "default";
+        pinctrl-0 = <&eth0_pins>;
+        interrupt-parent = <&gpio4>;
+        interrupts = <RK_PD6 IRQ_TYPE_EDGE_FALLING>;
+        spi-max-frequency = <12000000>;
+        status = "okay";
+    };
+
+};
+
+&pinctrl {
+    eth-pins {
+	    eth0_pins: eth0-pins {
+	        rockchip,pins = <4 RK_PD6 0 &pcfg_pull_up>;
+        };
+    };
+};
