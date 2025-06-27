@@ -11,6 +11,13 @@ menuconfig W1
 	  This W1 support can also be built as a module.  If so, the module
 	  will be called wire.
 
+config PERIPLEX_ONEWIRE
+	tristate "periplex 1-wire support"
+	depends on PERIPLEX
+	help
+	  periplex 1-wire bus is useful to connect slow 1-pin devices
+	  such as iButtons and thermal sensors.
+
 if W1
 
 config W1_CON
