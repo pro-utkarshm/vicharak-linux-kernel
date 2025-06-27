@@ -1,0 +1,6 @@
+config PERIPLEX_I2S
+	tristate "periplex I2S support"
+    depends on PERIPLEX
+	help
+	  Say y here to enable periplex I2S support.
+	  This option protects resources used by I2S.
