@@ -11,12 +11,12 @@
 #include <linux/delay.h>
 #include <linux/moduleparam.h>
 #include <linux/mutex.h>
+#include <linux/spinlock.h>
 
 /*
 ** header file through which device can communicate and generated
 */
-#include <linux/peripheral.h>
-// #include "include/peripheral.h"
+#include "include/peripheral.h"
 
 #define DRIVER_NAME "periplex-spi"
 #define MAX_FPGA_FREQ 100000000
@@ -45,8 +45,8 @@ int spi_read_periplex_data_flag;
 wait_queue_head_t spi_read_ack_wait;
 int spi_read_ack_periplex_data_flag;
 
-char *read_data_spi;
-int read_length_spi;
+char *read_data_spi = NULL;
+int read_length_spi = 0;
 
 /*
 ** Struct periplex_spi_data - Runtime info holder for SPI driver
@@ -73,11 +73,11 @@ static void periplex_spi_set_cs(struct spi_device *spi, bool enable)
     struct spi_controller *ctlr = spi->controller;
     int config = 0;
     int periplex_id = 0;
-    pr_info("chip select set\n");
+    SPI_DEBUG("chip select set\n");
     config = (spi->chip_select << 8) + enable;
     periplex_id = *(int *)(ctlr->dev.driver_data);
     set_periplex_configuration(periplex_id, 1, config);
-    msleep(150);
+    // msleep(150);
 }
 
 /* 
@@ -85,9 +85,15 @@ static void periplex_spi_set_cs(struct spi_device *spi, bool enable)
 */
 int read_data_for_spi(struct periplex_device *peri_dev, char *message, const int length)
 {
+    int ret = 0;
 
-    read_length_spi = length;
-    // pr_info("reading for spi..... %d\n", read_length_spi);
+    if (!message || length <= 0)
+    {
+        pr_err("Invalid message or length\n");
+        return -EINVAL;
+    }
+
+    mutex_lock(&spi_mutex);
 
     read_data_spi = kmalloc(length, GFP_KERNEL);
     if (!read_data_spi)
@@ -96,20 +102,46 @@ int read_data_for_spi(struct periplex_device *peri_dev, char *message, const int
         return -ENOMEM;
     }
 
+    read_length_spi = length;
+
     if (memcpy(read_data_spi, message, length) == NULL)
     {
-        pr_err("unable to copy data to read_data_spi\n");
+        pr_err("Unable to copy data to read_data_spi\n");
         kfree(read_data_spi);
-        return -EINVAL;
+        mutex_unlock(&spi_mutex);
+        return -EFAULT;
     }
 
     spi_read_periplex_data_flag = 1;
     wake_up_interruptible(&spi_read_wait);
 
-    // spi_read_ack_periplex_data_flag = 0;
-    // wait_event_interruptible(spi_read_ack_wait, spi_read_ack_periplex_data_flag != 0);
+    // Wait for acknowledgment with timeout
+    spi_read_ack_periplex_data_flag = 0;
+    ret = wait_event_interruptible_timeout(spi_read_ack_wait,
+                                           spi_read_ack_periplex_data_flag != 0,
+                                           msecs_to_jiffies(5000)); // 5 second timeout
 
-    msleep(25);
+    if (ret == 0)
+    {
+        // Timeout occurred
+        pr_err("Timed out waiting for acknowledgment\n");
+        kfree(read_data_spi);
+        mutex_unlock(&spi_mutex);
+        return -ETIMEDOUT;
+    }
+    else if (ret < 0)
+    {
+        // Wait was interrupted by a signal
+        pr_err("Wait interrupted with error: %d\n", ret);
+        kfree(read_data_spi);
+        mutex_unlock(&spi_mutex);
+        return -ERESTARTSYS;
+    }
+
+    SPI_DEBUG("Acknowledgment received successfully\n");
+    mutex_unlock(&spi_mutex);
+
+    msleep(1);
     return 0;
 }
 
@@ -133,20 +165,17 @@ static int periplex_spi_setup(struct spi_device *spi)
     int config = 0;
 
     periplex_id = *(int *)(ctlr->dev.driver_data);
-    pr_info("max-speed %d\n", spi->max_speed_hz);
+    SPI_DEBUG("max-speed %d\n", spi->max_speed_hz);
     //  TODO: check if the device freq is greater than master freq or not
     clk_per_half_bit = get_clk_per_half_bit(spi->max_speed_hz);
     config = (clk_per_half_bit << 8) + (spi->mode);
     SPI_DEBUG("periplex-id: %d\n", periplex_id);
     set_periplex_configuration(periplex_id, 0, config);
-    msleep(50);
+    // msleep(50);
     SPI_DEBUG("configuration set\n");
     return 0;
 }
 
-/* 
-** transfer_buf - handle to send buffer frame to the user-space  
-*/
 static void transfer_buf(struct spi_controller *ctlr, const void *buf, int len, int offset, bool read_write)
 {
     int periplex_id = *(int *)(ctlr->dev.driver_data);
@@ -170,13 +199,13 @@ static void transfer_buf(struct spi_controller *ctlr, const void *buf, int len, 
         return;
     }
 
-    pr_info("len is %d\n", len);
+    SPI_DEBUG("len is %d\n", len);
     if (len > 0)
     {
         set_periplex_data(periplex_id, len + 1, data);
     }
     kfree(data);
-    msleep(40);
+    // msleep(40);
 }
 
 /*
@@ -184,34 +213,38 @@ static void transfer_buf(struct spi_controller *ctlr, const void *buf, int len, 
 */
 static int periplex_spi_transfer_one_message(struct spi_controller *ctlr, struct spi_message *spi_msg)
 {
+    int ret = 0;
     struct spi_transfer *transfer;
     int rx_len = 0;
     int remaining_len = 0;
     int current_offset = 0;
     int chunk_size = 0;
-    int recv_len = 0;
 
-    mutex_lock(&spi_mutex);
+    if (!ctlr || !spi_msg)
+    {
+        pr_err("Invalid controller or message\n");
+        return -EINVAL;
+    }
+
     periplex_spi_set_cs(spi_msg->spi, 0);
 
     list_for_each_entry(transfer, &spi_msg->transfers, transfer_list)
     {
-        pr_info("Transfer Length: %d\n", transfer->len);
 
         /* Initialize variables for chunked transfer */
         remaining_len = transfer->len;
         current_offset = 0;
+
         if (transfer->tx_buf && transfer->len != 0)
         {
-            // pr_info("inside the TX-buf\n");
+            SPI_DEBUG("WRITE:Transfer Length: %d\n", transfer->len);
+
             /* Process data in chunks */
             while (remaining_len > 0)
             {
                 chunk_size = min((int)transfer->len - current_offset, MAX_CHUNK_SIZE);
                 /* Transfer current chunk */
                 transfer_buf(ctlr, transfer->tx_buf, chunk_size, current_offset, 0);
-
-                pr_info("waiting\n");
 
                 current_offset += chunk_size;
                 remaining_len -= chunk_size;
@@ -221,7 +254,8 @@ static int periplex_spi_transfer_one_message(struct spi_controller *ctlr, struct
 
         if (transfer->rx_buf)
         {
-            // pr_info("Read transfer buf length: %d\n", transfer->len);
+            SPI_DEBUG("READ:Transfer Length: %d\n", transfer->len);
+
             while (remaining_len > 0)
             {
                 chunk_size = min((int)transfer->len - current_offset, MAX_CHUNK_SIZE);
@@ -230,33 +264,62 @@ static int periplex_spi_transfer_one_message(struct spi_controller *ctlr, struct
 
                 while (rx_len < chunk_size)
                 {
-                    /* Wait for chunk receive completion */
-                    // pr_info("waiting\n");
                     spi_read_periplex_data_flag = 0;
-                    wait_event_interruptible(spi_read_wait, spi_read_periplex_data_flag != 0);
-                    recv_len = read_length_spi;
-                    if (memcpy(transfer->rx_buf + rx_len, read_data_spi, recv_len) == NULL)
+
+                    // Use timeout to avoid indefinite waiting
+                    ret = wait_event_interruptible_timeout(
+                        spi_read_wait,
+                        spi_read_periplex_data_flag != 0,
+                        msecs_to_jiffies(5000)); // 5 second timeout
+
+                    if (ret == 0)
                     {
-                        pr_err("Unable to copy data to read buffer\n");
+                        // Timeout occurred
+                        pr_err("SPI: Timed out waiting for read data \n");
+                        ret = -ETIMEDOUT;
+                        goto exit_with_error;
+                    }
+                    else if (ret < 0)
+                    {
+                        // Wait was interrupted
+                        pr_err("RX wait interrupted: %d\n", ret);
+                        goto exit_with_error;
+                    }
+
+                    SPI_DEBUG("Data received, processing...\n");
+
+                    // Safely copy data
+                    if (transfer->rx_buf + rx_len + read_length_spi <=
+                        transfer->rx_buf + transfer->len)
+                    {
+                        memcpy(transfer->rx_buf + rx_len, read_data_spi, read_length_spi);
+                    }
+                    else
+                    {
+                        pr_err("Buffer overflow prevented\n");
+                        ret = -EOVERFLOW;
+                        goto exit_with_error;
                     }
 
                     /* Update counters */
-                    rx_len += recv_len;
-                    current_offset += recv_len;
-                    // pr_info("rx_len is %d\n", rx_len);
-                    // pr_info("chunk_size is %d\n", chunk_size);
+                    rx_len += read_length_spi;
+                    current_offset += read_length_spi;
+                    SPI_DEBUG("rx_len is %d\n", rx_len);
+                    SPI_DEBUG("chunk_size is %d\n", chunk_size);
+                    SPI_DEBUG("remaining length is %d", remaining_len);
                     read_length_spi = 0;
                     kfree(read_data_spi);
+                    read_data_spi = NULL;
 
-                    // spi_read_ack_periplex_data_flag = 1;
-                    // wake_up_interruptible(&spi_read_ack_wait);
+                    spi_read_ack_periplex_data_flag = 1;
+                    wake_up_interruptible(&spi_read_ack_wait);
                 }
                 remaining_len -= chunk_size;
                 rx_len = 0;
+                /* Copy received data */
             }
-            rx_len = 0;
-            // current_offset = 0;
-            // pr_info("Reading complete\n");
+            current_offset = 0;
+            SPI_DEBUG("Reading complete\n");
         }
 
         spi_msg->actual_length += transfer->len;
@@ -265,8 +328,13 @@ static int periplex_spi_transfer_one_message(struct spi_controller *ctlr, struct
     periplex_spi_set_cs(spi_msg->spi, 1);
     spi_msg->status = 0;
     spi_finalize_current_message(ctlr);
-    mutex_unlock(&spi_mutex);
     return 0;
+
+exit_with_error:
+    periplex_spi_set_cs(spi_msg->spi, 1);
+    spi_msg->status = ret;
+    spi_finalize_current_message(ctlr);
+    return ret;
 }
 
 /*
