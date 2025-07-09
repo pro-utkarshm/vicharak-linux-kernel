@@ -88,7 +88,6 @@
 		reg = <0x1a>;
 		clocks = <&clk_cam_24m>;
 		clock-names = "xclk";
-		clock-noncontinuous;
 		rotation = <180>;
 		orientation = <2>;
 		rockchip,camera-module-index = <0>;
@@ -99,6 +98,8 @@
 		port {
 			ucam_out0: endpoint {
 				remote-endpoint = <&mipi_in_ucam0>;
+				link-frequencies = /bits/ 64 <450000000>;
+				clock-noncontinuous;
 				data-lanes = <1 2>;
 			};
 		};
