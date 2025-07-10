@@ -16,7 +16,7 @@
 /*
 ** header file through which device can communicate and generated
 */
-#include "include/peripheral.h"
+#include <linux/peripheral.h>
 
 #define DRIVER_NAME "periplex-spi"
 #define MAX_FPGA_FREQ 100000000
