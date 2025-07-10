@@ -554,7 +554,7 @@ struct file_operations periplex_ioctl_ops = {
 /* ioctl_init function */
 static int __init ioctl_init(void)
 {
-	int ret;
+	int ret = 0;
 
 	/* Initialize wait queue for configuration */
 	init_waitqueue_head(&wait_configuration_queue_ioctl);
