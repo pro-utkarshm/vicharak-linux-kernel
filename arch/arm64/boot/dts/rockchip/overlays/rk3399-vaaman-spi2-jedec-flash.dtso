@@ -6,11 +6,11 @@
 
 &{/} {
 	metadata {
-		title = "Enable SPI 2 Controller on 40-Pin GPIO";
+		title = "Enable SPI 2 Flash(W25) on 40-Pin GPIO Header";
 		compatible = "vicharak,rk3399-vaaman", "rockchip,rk3399";
 		category = "misc";
 		exclusive = "spi2", "GPIO2_B1", "GPIO2_B2", "GPIO2_B3", "GPIO2_B4";
-		description = "Enables SPI 2 Controller on Vicharak Vaaman\nNote: Max-frequency default at 1Mhz";
+		description = "Enables W25 SPI Flash on SPI2, Vicharak Vaaman\nNote: Max-frequency default at 10Mhz";
 	};
 };
 

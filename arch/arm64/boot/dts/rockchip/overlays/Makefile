@@ -16,6 +16,7 @@ dtbo-$(CONFIG_BOARD_VICHARAK_VAAMAN) += \
 	rk3399-vaaman-max9867-i2s1-i2c7.dtbo \
 	rk3399-vaaman-spi2-enc28j60.dtbo \
 	rk3399-vaaman-spi2-mcp2515.dtbo \
+	rk3399-vaaman-spi2-dev-gpio-header.dtbo \
 	rk3399-vaaman-camera-imx708.dtbo
 
 dtbo-$(CONFIG_BOARD_VICHARAK_AXON) += \
