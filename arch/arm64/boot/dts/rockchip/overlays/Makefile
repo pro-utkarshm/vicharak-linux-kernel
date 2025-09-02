@@ -31,7 +31,11 @@ dtbo-$(CONFIG_BOARD_VICHARAK_AXON) += \
 	rk3588-axon_v0.3-i2c5.dtbo \
 	rk3588-axon_v0.3-i2c7.dtbo \
 	rk3588-axon_v0.3-spi1.dtbo \
-	rk3588-axon_v0.3-spi1-enc28j60.dtbo
+	rk3588-axon_v0.3-spi1-enc28j60.dtbo \
+	rk3588-axon_v0.3-camera-ov5647-csi0-alpha.dtbo \
+	rk3588-axon_v0.3-camera-ov5647-csi1-alpha.dtbo \
+	rk3588-axon_v0.3-camera-ov5647-dphy-rx0-alpha.dtbo \
+	rk3588-axon_v0.3-camera-ov5647-dphy-rx1-alpha.dtbo
 
 dtbotxt-$(CONFIG_ARCH_ROCKCHIP) += \
 	README.rockchip-overlays
