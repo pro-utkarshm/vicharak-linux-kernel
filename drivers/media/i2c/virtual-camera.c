@@ -129,6 +129,12 @@ static const struct v4l2_fract vcamera_max_fps = {
 
 static const struct output_mode supported_modes[] = {
 	{
+		.width = 320,
+		.height = 240,
+		.hts_def = 320 + 160,
+		.vts_def = 240 + 48,
+	},
+	{
 		.width = 480,
 		.height = 360,
 		.hts_def = 480 + 176,
